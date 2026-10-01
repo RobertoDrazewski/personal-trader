@@ -2,7 +2,7 @@
   "name": "Puma-Code Trading Agent",
   "short_name": "PC Trading",
   "description": "Panel del agente de trading algorítmico de Puma Code",
-  "start_url": ".",
+  "start_url": "home.html",
   "display": "standalone",
   "background_color": "#0B1220",
   "theme_color": "#0B1220",

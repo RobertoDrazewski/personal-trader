@@ -155,17 +155,57 @@ tab_resumen, tab_graficos, tab_ops, tab_news, tab_screener, tab_bt, tab_glosario
 with tab_resumen:
     left, right = st.columns([2, 1])
     with left:
-        st.subheader("Evolución del equity")
         if not equity_df.empty:
-            chart_df = equity_df.sort_values("id")
+            chart_df = equity_df.sort_values("id").copy()
+            chart_df["ts_dt"] = pd.to_datetime(chart_df["ts"])
+
+            range_label = st.radio(
+                "Rango", ["1D", "1M", "1Y", "Todo"], horizontal=True, label_visibility="collapsed", index=0,
+            )
+            now = chart_df["ts_dt"].max()
+            if range_label == "1D":
+                cutoff = now - pd.Timedelta(days=1)
+            elif range_label == "1M":
+                cutoff = now - pd.Timedelta(days=30)
+            elif range_label == "1Y":
+                cutoff = now - pd.Timedelta(days=365)
+            else:
+                cutoff = chart_df["ts_dt"].min()
+            view_df = chart_df[chart_df["ts_dt"] >= cutoff]
+            if view_df.empty:
+                view_df = chart_df
+
+            current_val = view_df["equity"].iloc[-1]
+            start_val = view_df["equity"].iloc[0]
+            pct_change = ((current_val - start_val) / start_val * 100) if start_val else 0
+            pct_color = "#22c55e" if pct_change >= 0 else "#ef4444"
+            pct_sign = "+" if pct_change >= 0 else ""
+
+            st.markdown(f"""
+                <div style="display:flex; align-items:baseline; gap:12px; flex-wrap:wrap;">
+                    <span style="font-size:1.9rem; font-weight:700;">$ {current_val:,.2f}</span>
+                    <span style="font-size:1.1rem; font-weight:600; color:{pct_color};">{pct_sign}{pct_change:.2f}%</span>
+                </div>
+                <div style="color:#9FB0C3; font-size:0.82rem; margin-bottom:6px;">
+                    {view_df['ts_dt'].iloc[-1].strftime('%d %b %Y, %H:%M UTC')}
+                </div>
+            """, unsafe_allow_html=True)
+
             fig = go.Figure()
             fig.add_trace(go.Scatter(
-                x=chart_df["ts"], y=chart_df["equity"], mode="lines", fill="tozeroy",
-                line=dict(color="#22c55e" if chart_df["equity"].iloc[-1] >= chart_df["equity"].iloc[0] else "#ef4444", width=2),
-                fillcolor="rgba(34,197,94,0.12)",
+                x=view_df["ts_dt"], y=view_df["equity"], mode="lines", fill="tozeroy",
+                line=dict(color="#E8A33D", width=2.2), fillcolor="rgba(232,163,61,0.14)",
+                hovertemplate="$%{y:,.2f}<extra></extra>",
             ))
-            fig.update_layout(height=300, margin=dict(l=10, r=10, t=10, b=10), yaxis_title="USD", template="plotly_dark")
-            st.plotly_chart(fig, use_container_width=True)
+            fig.update_layout(
+                height=300, margin=dict(l=0, r=0, t=10, b=10),
+                template="plotly_dark", paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+                xaxis=dict(showgrid=False, showline=False, tickfont=dict(size=10, color="#9FB0C3")),
+                yaxis=dict(showgrid=True, gridcolor="rgba(255,255,255,0.08)", griddash="dot",
+                           tickprefix="$", tickformat="~s", tickfont=dict(size=10, color="#9FB0C3")),
+                hovermode="x unified",
+            )
+            st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
         else:
             st.info("Todavía no hay datos de equity.")
     with right:

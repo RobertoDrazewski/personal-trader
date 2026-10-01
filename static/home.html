@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <title>Puma-Code Trading Agent</title>
+
+    <link rel="apple-touch-icon" href="apple-touch-icon.png">
+    <link rel="icon" type="image/png" href="favicon.png">
+    <link rel="manifest" href="manifest.json">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="PC Trading">
+    <meta name="theme-color" content="#0B1220">
+
+    <style>
+        :root { color-scheme: dark; }
+        * { box-sizing: border-box; }
+        body {
+            margin: 0; min-height: 100vh; display: flex; flex-direction: column;
+            align-items: center; justify-content: center; gap: 22px;
+            background: radial-gradient(circle at 50% 20%, #142033 0%, #0B1220 70%);
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            color: #E8EEF5; text-align: center; padding: 24px;
+            padding-top: env(safe-area-inset-top, 24px);
+            padding-bottom: env(safe-area-inset-bottom, 24px);
+        }
+        img.logo { width: 120px; height: auto; }
+        h1 {
+            margin: 0; font-size: 1.6rem;
+            background: linear-gradient(90deg, #D9A05B, #4FD1E8);
+            -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+        }
+        p.sub { margin: 0; color: #9FB0C3; font-size: 0.95rem; }
+        a.enter {
+            margin-top: 10px; padding: 14px 34px; border-radius: 999px;
+            background: linear-gradient(90deg, #C08A4E, #4FD1E8); color: #0B1220;
+            font-weight: 700; text-decoration: none; font-size: 1rem;
+            box-shadow: 0 6px 20px rgba(79,209,232,0.25);
+        }
+    </style>
+</head>
+<body>
+    <img class="logo" src="header_logo.png" alt="Puma Code">
+    <h1>Puma-Code Trading Agent</h1>
+    <p class="sub">Panel en vivo — Paper Trading</p>
+    <a class="enter" href="/">Entrar al panel →</a>
+</body>
+</html>
