@@ -1,0 +1,10 @@
+.env
+venv/
+__pycache__/
+*.pyc
+agent_data.sqlite3
+equity_state.json
+KILL_SWITCH.flag
+agent_stdout.log
+agent_stderr.log
+.DS_Store
