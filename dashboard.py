@@ -191,6 +191,15 @@ with tab_resumen:
                 </div>
             """, unsafe_allow_html=True)
 
+            # Zoom al rango real donde se mueve el equity — igual que Alpaca,
+            # que NO arranca el eje en $0 (si no, fluctuaciones chicas se ven como línea plana).
+            y_min, y_max = view_df["equity"].min(), view_df["equity"].max()
+            span = y_max - y_min
+            if span <= 0:
+                span = max(y_max * 0.001, 1)  # evita rango cero si el equity no se movió nada
+            padding = span * 0.25
+            y_range = [y_min - padding, y_max + padding]
+
             fig = go.Figure()
             fig.add_trace(go.Scatter(
                 x=view_df["ts_dt"], y=view_df["equity"], mode="lines", fill="tozeroy",
@@ -202,7 +211,8 @@ with tab_resumen:
                 template="plotly_dark", paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
                 xaxis=dict(showgrid=False, showline=False, tickfont=dict(size=10, color="#9FB0C3")),
                 yaxis=dict(showgrid=True, gridcolor="rgba(255,255,255,0.08)", griddash="dot",
-                           tickprefix="$", tickformat="~s", tickfont=dict(size=10, color="#9FB0C3")),
+                           tickprefix="$", tickformat=",.0f", tickfont=dict(size=10, color="#9FB0C3"),
+                           range=y_range),
                 hovermode="x unified",
             )
             st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
