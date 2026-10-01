@@ -46,13 +46,23 @@ st.markdown("""
     [data-testid="stMetricValue"] {font-size: 1.3rem;}
     [data-testid="stMetricLabel"] {font-size: 0.78rem; opacity: 0.85;}
     h1 {font-size: 1.6rem !important;}
-    .pc-header {display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-bottom: 0.4rem;}
-    .pc-header img {height: 48px;}
-    .pc-header h1 {margin: 0; background: linear-gradient(90deg, #C08A4E, #4FD1E8);
+    .pc-header {
+        display: flex; align-items: center; gap: 20px; flex-wrap: wrap;
+        margin-bottom: 1rem; padding: 18px 22px;
+        background: linear-gradient(135deg, rgba(192,138,78,0.10), rgba(79,209,232,0.08));
+        border: 1px solid rgba(255,255,255,0.08); border-radius: 14px;
+    }
+    .pc-header img {height: 64px; width: auto; object-fit: contain; flex-shrink: 0;}
+    .pc-header-text {display: flex; flex-direction: column; gap: 2px;}
+    .pc-header h1 {margin: 0; font-size: 1.7rem !important; line-height: 1.15;
+                    background: linear-gradient(90deg, #D9A05B, #4FD1E8);
                     -webkit-background-clip: text; -webkit-text-fill-color: transparent;}
+    .pc-header .pc-subtitle {margin: 0; font-size: 0.85rem; color: #9FB0C3; letter-spacing: 0.3px;}
     @media (max-width: 640px) {
-        .pc-header img {height: 36px;}
-        h1 {font-size: 1.25rem !important;}
+        .pc-header {padding: 14px 16px; gap: 14px;}
+        .pc-header img {height: 46px;}
+        .pc-header h1 {font-size: 1.2rem !important;}
+        .pc-header .pc-subtitle {font-size: 0.72rem;}
         [data-testid="stMetricValue"] {font-size: 1.1rem;}
     }
 </style>
@@ -108,7 +118,12 @@ def logo_b64():
 kill_active = get_state("kill_switch") == "active"
 logo64 = logo_b64()
 logo_html = f'<img src="data:image/png;base64,{logo64}">' if logo64 else "🤖"
-st.markdown(f'<div class="pc-header">{logo_html}<h1>{APP_TITLE}</h1></div>', unsafe_allow_html=True)
+st.markdown(
+    f'<div class="pc-header">{logo_html}'
+    f'<div class="pc-header-text"><h1>{APP_TITLE}</h1>'
+    f'<p class="pc-subtitle">Panel en vivo — Paper Trading · Alpaca</p></div></div>',
+    unsafe_allow_html=True,
+)
 
 if kill_active:
     st.error("🛑 DETENIDO (kill switch activo)")
