@@ -280,6 +280,7 @@ def run_cycle(broker: AlpacaBroker, risk: RiskEngine):
 
 
 def main():
+    global _last_equity
     problems = Config.validate()
     if problems:
         for p in problems:
@@ -302,6 +303,7 @@ def main():
     while True:
         try:
             if risk.is_kill_switch_active():
+                _last_equity = None   # al desactivarlo no se compara contra el equity de antes de la pausa
                 log_event("critical", "Kill switch activo — el agente no abre posiciones nuevas. Esperando...")
                 # Aun así, las posiciones cripto que ya estén abiertas siguen vigiladas.
                 protect_crypto_positions(broker)
