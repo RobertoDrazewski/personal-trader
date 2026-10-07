@@ -405,7 +405,10 @@ ASTEROID_HTML = """
 <style>
 html,body{margin:0;height:100%;background:transparent;overflow:hidden;font-family:'JetBrains Mono',monospace}
 #wrap{position:relative;width:100%;height:__H__px}
-canvas{display:block;width:100%;height:100%;touch-action:pan-y;cursor:grab}
+canvas{display:block;width:100%;height:100%;touch-action:pan-y;cursor:crosshair}
+#hov{position:absolute;width:20px;height:20px;margin:-10px 0 0 -10px;border-radius:50%;border:1.5px solid rgba(255,255,255,.9);
+     box-shadow:0 0 10px rgba(255,255,255,.55);pointer-events:none;display:none}
+#tip{z-index:2;display:none}
 .tag{position:absolute;transform:translate(-50%,-50%);font:500 11px 'JetBrains Mono',monospace;padding:2px 6px;border-radius:4px;
      border:1px solid;background:rgba(4,6,13,.86);white-space:nowrap;pointer-events:none}
 .tag.g{color:#3EE89A;border-color:rgba(62,232,154,.55)}.tag.r{color:#FF5F6D;border-color:rgba(255,95,109,.55)}.tag.y{color:#F5C84B;border-color:rgba(245,200,75,.55)}
@@ -429,7 +432,7 @@ canvas{display:block;width:100%;height:100%;touch-action:pan-y;cursor:grab}
 #card .plr{font-weight:700;font-size:13px}#card .dimr{color:#6F82A3}
 .tag.b{color:#6FB6FF;border-color:rgba(111,182,255,.6)}
 </style></head><body>
-<div id="wrap"><canvas id="c"></canvas><div id="labels"></div><div id="ring"></div>
+<div id="wrap"><canvas id="c"></canvas><div id="labels"></div><div id="hov"></div><div class="tag" id="tip"></div><div id="ring"></div>
 <div id="card"></div><div id="fallback">No se pudo cargar el visor 3D.</div></div>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script>
@@ -467,20 +470,27 @@ items.forEach(function(it, si){
   }
   centroids.push(acc.multiplyScalar(1 / n));
 });
-// polvo estelar alrededor
+// polvo estelar alrededor (puntos chicos, aparte: no se pueden elegir)
+var dpos = [], dcol = [];
 for (var i = 0; i < 260; i++){
   var dd = new THREE.Vector3(gauss(), gauss(), gauss()).normalize().multiplyScalar(1.5 + rnd() * 1.4);
-  pos.push(dd.x, dd.y, dd.z); var t = 0.25 + 0.5 * rnd(); col.push(0.45 * t, 0.62 * t, 1.0 * t);
+  dpos.push(dd.x, dd.y, dd.z); var t = 0.25 + 0.5 * rnd(); dcol.push(0.45 * t, 0.62 * t, 1.0 * t);
 }
+// disco más sólido que antes: los puntos se ven más grandes y definidos
 function dot(){ var c = document.createElement("canvas"); c.width = c.height = 64; var x = c.getContext("2d");
-  var g = x.createRadialGradient(32, 32, 0, 32, 32, 32); g.addColorStop(0, "rgba(255,255,255,1)"); g.addColorStop(0.35, "rgba(255,255,255,.85)"); g.addColorStop(1, "rgba(255,255,255,0)");
+  var g = x.createRadialGradient(32, 32, 0, 32, 32, 32); g.addColorStop(0, "rgba(255,255,255,1)"); g.addColorStop(0.5, "rgba(255,255,255,.95)"); g.addColorStop(0.8, "rgba(255,255,255,.4)"); g.addColorStop(1, "rgba(255,255,255,0)");
   x.fillStyle = g; x.fillRect(0, 0, 64, 64); return new THREE.CanvasTexture(c); }
+var dotTex = dot();
 var geo = new THREE.BufferGeometry();
 geo.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
 geo.setAttribute("color", new THREE.Float32BufferAttribute(col, 3));
 var baseCol = col.slice();
-var mat = new THREE.PointsMaterial({size: 0.06, map: dot(), vertexColors: true, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, sizeAttenuation: true});
+var BASE = 0.115;
+var mat = new THREE.PointsMaterial({size: BASE, map: dotTex, vertexColors: true, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, sizeAttenuation: true});
 group.add(new THREE.Points(geo, mat));
+var dgeo = new THREE.BufferGeometry();
+dgeo.setAttribute("position", new THREE.Float32BufferAttribute(dpos, 3)); dgeo.setAttribute("color", new THREE.Float32BufferAttribute(dcol, 3));
+group.add(new THREE.Points(dgeo, new THREE.PointsMaterial({size: 0.05, map: dotTex, vertexColors: true, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, sizeAttenuation: true})));
 
 // hilos entre puntos vecinos
 var lp = [], lc = [];
@@ -509,8 +519,8 @@ items.map(function(it, i){ return {it: it, i: i}; }).filter(function(o){ return 
 });
 
 group.rotation.x = 0.35;
-var auto = true, drag = false, lastX = 0, downX = 0, downY = 0, moved = 0, selected = -1, resumeT = null;
-var ringEl = document.getElementById("ring"), cardEl = document.getElementById("card");
+var auto = true, drag = false, lastX = 0, downX = 0, downY = 0, moved = 0, selected = -1, selPt = -1, hoverIdx = -1, resumeT = null;
+var ringEl = document.getElementById("ring"), cardEl = document.getElementById("card"), hovEl = document.getElementById("hov"), tipEl = document.getElementById("tip");
 var SIGTXT = {buy: ["COMPRA", "g"], sell: ["VENTA", "r"], hold: ["MANTENER", "y"]};
 var TONETXT = {g: "Tendencia alcista", y: "Sin dirección clara", r: "Tendencia bajista"};
 
@@ -559,25 +569,38 @@ function showCard(si){
   if (it.ts){ var t = el("div", "", "Lectura: " + it.ts); t.style.cssText = "color:#6F82A3;font-size:10px;margin-top:4px"; cardEl.appendChild(t); }
   cardEl.style.display = "block";
 }
-function select(si){
-  selected = si; paint();
+function select(si, pt){
+  selected = si; selPt = (pt === undefined ? -1 : pt); paint();
   if (si < 0){ cardEl.style.display = "none"; ringEl.style.display = "none"; auto = true; return; }
   showCard(si);
   ringEl.style.color = "#" + COL[items[si].tone].toString(16).padStart(6, "0");
   ringEl.style.display = "block";
 }
-// qué símbolo hay bajo el dedo/cursor: primero el punto más cercano, si no, la nube más cercana
-function pick(cx, cy){
+// punto exacto bajo el cursor/dedo (radio en píxeles; los de adelante ganan a los de atrás)
+function pickPoint(cx, cy, radius){
   var rect = canvas.getBoundingClientRect(), w = rect.width, h = rect.height, mx = cx - rect.left, my = cy - rect.top;
   group.updateMatrixWorld();
-  var best = -1, bd = 18 * 18, vv = new THREE.Vector3();
+  var best = -1, bd = radius * radius, vv = new THREE.Vector3();
   for (var i = 0; i < P.length; i++){
     vv.copy(P[i]).applyMatrix4(group.matrixWorld);
     var front = vv.z > -0.35; vv.project(camera);
     var dx = (vv.x * 0.5 + 0.5) * w - mx, dy = (-vv.y * 0.5 + 0.5) * h - my, d = dx * dx + dy * dy + (front ? 0 : 400);
-    if (d < bd){ bd = d; best = owner[i]; }
+    if (d < bd){ bd = d; best = i; }
   }
-  if (best >= 0) return best;
+  return best;
+}
+function setHover(i){
+  hoverIdx = i;
+  if (i < 0){ hovEl.style.display = "none"; tipEl.style.display = "none"; return; }
+  var it = items[owner[i]];
+  tipEl.className = "tag " + it.tone;
+  tipEl.textContent = it.symbol + (it.strong ? (it.tone === "g" ? " \\u25B2" : " \\u25BC") : "");
+  hovEl.style.display = "block"; tipEl.style.display = "block";
+}
+// si no cae sobre ningún punto, la nube de símbolo más cercana
+function pickCluster(cx, cy){
+  var rect = canvas.getBoundingClientRect(), w = rect.width, h = rect.height, mx = cx - rect.left, my = cy - rect.top, vv = new THREE.Vector3();
+  group.updateMatrixWorld();
   var cb = -1, cd = 60 * 60;
   for (var s = 0; s < centroids.length; s++){
     vv.copy(centroids[s]).applyMatrix4(group.matrixWorld); vv.project(camera);
@@ -586,10 +609,15 @@ function pick(cx, cy){
   }
   return cb;
 }
-canvas.addEventListener("pointerdown", function(e){ drag = true; auto = false; lastX = e.clientX; downX = e.clientX; downY = e.clientY; moved = 0; if (resumeT) clearTimeout(resumeT); });
+canvas.addEventListener("pointerdown", function(e){ setHover(-1); drag = true; auto = false; lastX = e.clientX; downX = e.clientX; downY = e.clientY; moved = 0; if (resumeT) clearTimeout(resumeT); });
+canvas.addEventListener("pointerleave", function(){ if (!drag) setHover(-1); });
 window.addEventListener("pointerup", function(e){
   if (!drag) return; drag = false;
-  if (moved < 6 && e.target === canvas){ var s = pick(e.clientX, e.clientY); select(s === selected ? -1 : s); }
+  if (moved < 6 && e.target === canvas){
+    var pi = pickPoint(e.clientX, e.clientY, e.pointerType === "mouse" ? 16 : 28);
+    var s = pi >= 0 ? owner[pi] : pickCluster(e.clientX, e.clientY);
+    select(s, pi);   // si tocás el vacío (s = -1) se cierra la ficha
+  }
   // mientras hay una ficha abierta, el asteroide queda quieto para poder leerla
   resumeT = setTimeout(function(){ if (selected < 0) auto = true; }, 2500);
 });
@@ -599,7 +627,9 @@ window.addEventListener("pointercancel", function(){
   resumeT = setTimeout(function(){ if (selected < 0) auto = true; }, 800);
 });
 window.addEventListener("pointermove", function(e){
-  if (drag){ moved = Math.max(moved, Math.abs(e.clientX - downX) + Math.abs(e.clientY - downY)); group.rotation.y += (e.clientX - lastX) * 0.008; lastX = e.clientX; }
+  if (drag){ moved = Math.max(moved, Math.abs(e.clientX - downX) + Math.abs(e.clientY - downY)); group.rotation.y += (e.clientX - lastX) * 0.008; lastX = e.clientX; return; }
+  // con mouse: resalta el punto bajo el cursor y frena el giro para poder hacerle clic
+  if (e.pointerType === "mouse" && e.target === canvas) setHover(pickPoint(e.clientX, e.clientY, 14));
 });
 
 function resize(){
@@ -611,8 +641,8 @@ var reduce = window.matchMedia && window.matchMedia("(prefers-reduced-motion: re
 var v = new THREE.Vector3();
 function frame(t){
   // con "Reducir movimiento" activado (común en iPhone) gira más lento en vez de quedarse quieto
-  if (auto) group.rotation.y += reduce ? 0.0012 : 0.0028;
-  mat.size = reduce ? 0.06 : 0.06 + 0.006 * Math.sin(t / 700);
+  if (auto && hoverIdx < 0) group.rotation.y += reduce ? 0.0012 : 0.0028;
+  mat.size = reduce ? BASE : BASE + 0.008 * Math.sin(t / 700);
   renderer.render(scene, camera);
   group.updateMatrixWorld();
   var w = wrap.clientWidth, h = wrap.clientHeight;
@@ -623,9 +653,16 @@ function frame(t){
     tg.el.style.opacity = front ? 1 : 0.18;
   });
   if (selected >= 0){
-    v.copy(centroids[selected]).applyMatrix4(group.matrixWorld); var fr = v.z > -0.2; v.project(camera);
+    // el aro marca el punto exacto que tocaste (o el centro de la nube si tocaste entre puntos)
+    v.copy(selPt >= 0 ? P[selPt] : centroids[selected]).applyMatrix4(group.matrixWorld); var fr = v.z > -0.2; v.project(camera);
     ringEl.style.left = ((v.x * 0.5 + 0.5) * w) + "px"; ringEl.style.top = ((-v.y * 0.5 + 0.5) * h) + "px";
     ringEl.style.opacity = fr ? 1 : 0.25;
+  }
+  if (hoverIdx >= 0){
+    v.copy(P[hoverIdx]).applyMatrix4(group.matrixWorld); v.project(camera);
+    var hx = (v.x * 0.5 + 0.5) * w, hy = (-v.y * 0.5 + 0.5) * h;
+    hovEl.style.left = hx + "px"; hovEl.style.top = hy + "px";
+    tipEl.style.left = hx + "px"; tipEl.style.top = (hy - 22) + "px";
   }
   requestAnimationFrame(frame);
 }
