@@ -25,6 +25,7 @@ from config import Config, is_crypto, norm_symbol, timeframe_for
 from logger_db import init_db, get_state, set_state, delete_state, _dsn
 from broker_alpaca import AlpacaBroker
 from landing import render_landing
+from seo import patch_index_html
 from strategy import compute_signal
 
 APP_TITLE = "Puma-Code Trading Agent"
@@ -36,6 +37,13 @@ try:
     page_icon_img = Image.open(os.path.join(STATIC_DIR, "favicon.png"))
 except Exception:
     page_icon_img = "🤖"
+
+@st.cache_resource
+def _seo_once():
+    return patch_index_html()
+
+
+_seo_once()  # vista previa al compartir el link (ver seo.py)
 
 st.set_page_config(page_title=APP_TITLE, layout="wide", page_icon=page_icon_img)
 
