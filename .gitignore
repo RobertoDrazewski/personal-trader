@@ -8,3 +8,5 @@ KILL_SWITCH.flag
 agent_stdout.log
 agent_stderr.log
 .DS_Store
+.agents/
+.claude/
