@@ -7,6 +7,7 @@ porque el agente y el dashboard son dos servicios separados en Railway, y
 ambos necesitan ver el mismo estado.
 """
 import json
+import math
 from datetime import datetime, timezone, date
 
 from config import Config
@@ -78,7 +79,12 @@ class RiskEngine:
         return True, "OK"
 
     # ---------- Sizing y trailing stop ----------
-    def position_size(self, equity: float, price: float) -> int:
+    def position_size(self, equity: float, price: float, crypto: bool = False):
+        """Acciones: cantidad entera. Cripto: fraccionaria, redondeada hacia abajo a 6 decimales."""
+        if crypto:
+            max_dollars = equity * Config.CRYPTO_MAX_POSITION_PCT
+            qty = math.floor(max_dollars / price * 1_000_000) / 1_000_000
+            return max(qty, 0.0)
         max_dollars = equity * Config.MAX_POSITION_PCT
         qty = int(max_dollars // price)
         return max(qty, 0)
@@ -86,11 +92,14 @@ class RiskEngine:
     def stop_loss_price(self, entry_price: float) -> float:
         return round(entry_price * (1 - Config.STOP_LOSS_PCT), 2)
 
-    def trailing_stop_percent(self) -> float:
-        return round(Config.TRAILING_STOP_PCT * 100, 2)
+    def trailing_stop_percent(self, crypto: bool = False) -> float:
+        pct = Config.CRYPTO_TRAILING_STOP_PCT if crypto else Config.TRAILING_STOP_PCT
+        return round(pct * 100, 2)
 
-    def can_open_new_position(self, current_open_positions: int) -> bool:
-        return current_open_positions < Config.MAX_OPEN_POSITIONS
+    def can_open_new_position(self, current_open_positions: int, crypto: bool = False) -> bool:
+        """Los cupos de acciones y cripto son independientes, así una clase no deja sin lugar a la otra."""
+        limit = Config.MAX_CRYPTO_POSITIONS if crypto else Config.MAX_OPEN_POSITIONS
+        return current_open_positions < limit
 
     def snapshot_metrics(self, equity: float):
         peak = self.state.get("peak_equity") or equity

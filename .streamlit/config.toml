@@ -3,8 +3,8 @@ enableStaticServing = true
 
 [theme]
 base = "dark"
-primaryColor = "#4FD1E8"
-backgroundColor = "#0B1220"
-secondaryBackgroundColor = "#142033"
+primaryColor = "#3EE89A"
+backgroundColor = "#04060D"
+secondaryBackgroundColor = "#0A1020"
 textColor = "#E8EEF5"
 font = "sans serif"

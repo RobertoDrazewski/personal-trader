@@ -27,6 +27,20 @@ def _get_int(name: str, default: int) -> int:
     return int(val) if val else default
 
 
+def is_crypto(symbol: str) -> bool:
+    """Los pares cripto de Alpaca llevan barra: BTC/USD, ETH/USD, etc."""
+    return "/" in symbol
+
+
+def norm_symbol(symbol: str) -> str:
+    """Alpaca devuelve las posiciones cripto sin barra (BTCUSD). Para comparar, sacamos la barra."""
+    return symbol.replace("/", "").upper()
+
+
+def _get_symbols(name: str, default: str) -> list:
+    return [s.strip().upper() for s in os.getenv(name, default).split(",") if s.strip()]
+
+
 class Config:
     # --- Alpaca ---
     APCA_API_KEY_ID = os.getenv("APCA_API_KEY_ID", "")
@@ -36,7 +50,19 @@ class Config:
     IS_PAPER = MODE != "live"
 
     # --- Universo de símbolos a operar ---
-    SYMBOLS = [s.strip().upper() for s in os.getenv("SYMBOLS", "AAPL,MSFT,SPY").split(",") if s.strip()]
+    SYMBOLS = _get_symbols("SYMBOLS", "AAPL,MSFT,SPY")
+
+    # --- Cripto (opcional) ---
+    # Vacío = el agente NO opera cripto. Ejemplo: CRYPTO_SYMBOLS=BTC/USD,ETH/USD
+    # Se elige después de correr backtest_crypto.py (ver README).
+    CRYPTO_SYMBOLS = _get_symbols("CRYPTO_SYMBOLS", "")
+    MAX_CRYPTO_POSITIONS = _get_int("MAX_CRYPTO_POSITIONS", 2)
+    # La cripto se mueve mucho más que las acciones: por defecto, posición más chica
+    # y trailing stop más ancho (con 3% en velas de 15 min se dispararía todo el tiempo).
+    CRYPTO_MAX_POSITION_PCT = _get_float("CRYPTO_MAX_POSITION_PCT", 0.05)
+    CRYPTO_TRAILING_STOP_PCT = _get_float("CRYPTO_TRAILING_STOP_PCT", 0.05)
+    # Comisión taker de Alpaca cripto (por lado). Solo la usa el backtest.
+    CRYPTO_FEE_PCT = _get_float("CRYPTO_FEE_PCT", 0.0025)
 
     # --- Timeframe de la estrategia ---
     TIMEFRAME_MINUTES = _get_int("TIMEFRAME_MINUTES", 15)
@@ -81,8 +107,14 @@ class Config:
             problems.append("Faltan APCA_API_KEY_ID / APCA_API_SECRET_KEY")
         if cls.LLM_PROVIDER == "openai" and not cls.OPENAI_API_KEY:
             problems.append("LLM_PROVIDER=openai pero falta OPENAI_API_KEY")
-        if not cls.SYMBOLS:
-            problems.append("SYMBOLS está vacío")
+        if not cls.SYMBOLS and not cls.CRYPTO_SYMBOLS:
+            problems.append("SYMBOLS y CRYPTO_SYMBOLS están vacíos")
+        bad = [s for s in cls.CRYPTO_SYMBOLS if not is_crypto(s)]
+        if bad:
+            problems.append(f"CRYPTO_SYMBOLS debe usar el formato con barra (BTC/USD). Revisá: {bad}")
+        wrong = [s for s in cls.SYMBOLS if is_crypto(s)]
+        if wrong:
+            problems.append(f"Los pares cripto van en CRYPTO_SYMBOLS, no en SYMBOLS: {wrong}")
         if not cls.DATABASE_URL:
             problems.append("Falta DATABASE_URL — conectá el plugin de Postgres a este servicio en Railway")
         return problems

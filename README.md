@@ -123,7 +123,8 @@ Ambos servicios (agent y dashboard) se reconstruyen automáticamente.
 | `OPENAI_API_KEY` | agent | solo si `LLM_PROVIDER=openai` |
 | `APP_PASSWORD` | dashboard | protege el link público |
 | `TELEGRAM_BOT_TOKEN` / `TELEGRAM_CHAT_ID` | agent | alertas |
-| Resto (`SYMBOLS`, `MAX_POSITION_PCT`, etc.) | agent (y dashboard para mostrar límites) | igual que antes |
+| `CRYPTO_SYMBOLS` | agent (y dashboard) | vacío = cripto apagada. Ej.: `BTC/USD,ETH/USD` (ver sección 8) |
+| Resto (`SYMBOLS`, `MAX_POSITION_PCT`, `MAX_CRYPTO_POSITIONS`, etc.) | agent (y dashboard para mostrar límites) | igual que antes |
 
 ## 5. Backtest y optimización en la nube
 
@@ -148,3 +149,32 @@ para este proyecto). Dos servicios livianos + una base chica normalmente
 caen dentro de planes de entrada económicos — revisá el pricing actual en
 railway.com antes de dejarlo corriendo indefinidamente, para no llevarte
 una sorpresa en la facturación.
+
+## 8. Cripto (mismo agente, mismo servicio, costo extra $0)
+
+Alpaca opera cripto con la misma cuenta y las mismas keys. El agente actual
+suma los pares de `CRYPTO_SYMBOLS` al mismo ciclo, con la misma estrategia, el
+mismo motor de riesgo y el mismo kill switch. No hace falta un servicio nuevo.
+
+**Antes de activar nada, elegí los pares con datos:**
+```bash
+python backtest_crypto.py            # 180 días, velas de 15 min, 8 pares
+python backtest_crypto.py 365 15 BTC/USD,ETH/USD,SOL/USD
+```
+Muestra, por par, el retorno de la estrategia contra "comprar y mantener" con
+la misma exposición, y si el resultado se sostiene en las dos mitades del
+período. Si ningún par es consistente, no actives cripto todavía.
+
+**Para activarla:** en Railway → servicio `agent` → Variables →
+`CRYPTO_SYMBOLS=BTC/USD,ETH/USD` (los pares que hayan salido consistentes).
+
+Diferencias con las acciones:
+- Opera 24/7 (no espera a que abra el mercado).
+- Cupo propio (`MAX_CRYPTO_POSITIONS`, 2 por defecto) y posición más chica
+  (`CRYPTO_MAX_POSITION_PCT`, 5%), porque se mueve mucho más.
+- Alpaca no ofrece trailing stop para cripto: lo vigila el agente cada
+  `POLL_INTERVAL_SECONDS` (por defecto `CRYPTO_TRAILING_STOP_PCT`=5%) y vende a
+  mercado si el precio cae ese porcentaje desde su pico. Sigue activo aunque el
+  trading esté pausado o el kill switch encendido.
+- Comisión de Alpaca cripto (~0,25% por lado) incluida en el backtest.
+- Cantidades fraccionarias (0,0733 BTC), no enteras.

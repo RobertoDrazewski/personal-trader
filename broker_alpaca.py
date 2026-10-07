@@ -1,19 +1,30 @@
 """
 broker_alpaca.py
 Envoltorio sobre alpaca-py. Todo lo que toca al broker pasa por acá.
+
+Acciones y cripto usan la misma cuenta y las mismas API keys, pero:
+  - los datos cripto vienen de otro cliente (CryptoHistoricalDataClient),
+  - los pares llevan barra (BTC/USD) al pedir datos y órdenes, pero las
+    posiciones vuelven sin barra (BTCUSD),
+  - las órdenes cripto aceptan cantidades fraccionarias y solo GTC/IOC,
+  - Alpaca no ofrece trailing stop para cripto: lo maneja el agente (main.py).
 """
 from datetime import datetime, timedelta, timezone
 
 from alpaca.trading.client import TradingClient
 from alpaca.trading.requests import MarketOrderRequest, TrailingStopOrderRequest, GetOrdersRequest
 from alpaca.trading.enums import OrderSide, TimeInForce, QueryOrderStatus
-from alpaca.data.historical import StockHistoricalDataClient
-from alpaca.data.requests import StockBarsRequest
+from alpaca.data.historical import StockHistoricalDataClient, CryptoHistoricalDataClient
+from alpaca.data.requests import StockBarsRequest, CryptoBarsRequest
 from alpaca.data.timeframe import TimeFrame, TimeFrameUnit
 from alpaca.data.enums import DataFeed
 
-from config import Config
+from config import Config, is_crypto, norm_symbol
 from logger_db import log_event, log_order
+
+
+def _timeframe(minutes: int):
+    return TimeFrame(minutes, TimeFrameUnit.Minute) if minutes != 1440 else TimeFrame.Day
 
 
 class AlpacaBroker:
@@ -24,8 +35,12 @@ class AlpacaBroker:
         self.data_client = StockHistoricalDataClient(
             Config.APCA_API_KEY_ID, Config.APCA_API_SECRET_KEY
         )
+        self.crypto_data_client = CryptoHistoricalDataClient(
+            Config.APCA_API_KEY_ID, Config.APCA_API_SECRET_KEY
+        )
         log_event("info", f"Conectado a Alpaca en modo {'PAPER' if Config.IS_PAPER else 'LIVE'}.")
 
+    # ---------- Cuenta y posiciones ----------
     def get_equity_and_cash(self):
         acct = self.trading_client.get_account()
         return float(acct.equity), float(acct.cash)
@@ -33,23 +48,42 @@ class AlpacaBroker:
     def get_open_positions(self):
         return self.trading_client.get_all_positions()
 
+    @staticmethod
+    def is_crypto_position(position) -> bool:
+        asset_class = getattr(position, "asset_class", None)
+        value = getattr(asset_class, "value", asset_class)
+        return str(value).lower() == "crypto"
+
     def get_open_positions_count(self) -> int:
         return len(self.get_open_positions())
 
     def has_open_position(self, symbol: str) -> bool:
-        return any(p.symbol == symbol for p in self.get_open_positions())
+        target = norm_symbol(symbol)
+        return any(norm_symbol(p.symbol) == target for p in self.get_open_positions())
 
+    # ---------- Datos ----------
     def get_recent_bars(self, symbol: str, minutes: int, lookback: int):
         end = datetime.now(timezone.utc)
-        start = end - timedelta(days=max(5, lookback * minutes // 60 // 6 + 3))
-        req = StockBarsRequest(
-            symbol_or_symbols=symbol,
-            timeframe=TimeFrame(minutes, TimeFrameUnit.Minute) if minutes != 1440 else TimeFrame.Day,
-            start=start,
-            end=end,
-            feed=DataFeed.IEX,
-        )
-        bars = self.data_client.get_stock_bars(req)
+        if is_crypto(symbol):
+            # La cripto opera 24/7: no hace falta pedir días de más por fines de semana.
+            days = max(2, lookback * minutes // 60 // 24 + 2)
+            req = CryptoBarsRequest(
+                symbol_or_symbols=symbol,
+                timeframe=_timeframe(minutes),
+                start=end - timedelta(days=days),
+                end=end,
+            )
+            bars = self.crypto_data_client.get_crypto_bars(req)
+        else:
+            start = end - timedelta(days=max(5, lookback * minutes // 60 // 6 + 3))
+            req = StockBarsRequest(
+                symbol_or_symbols=symbol,
+                timeframe=_timeframe(minutes),
+                start=start,
+                end=end,
+                feed=DataFeed.IEX,
+            )
+            bars = self.data_client.get_stock_bars(req)
         df = bars.df
         if df is None or df.empty:
             return None
@@ -57,12 +91,15 @@ class AlpacaBroker:
             df = df.loc[symbol]
         return df.tail(lookback)
 
-    def submit_market_order(self, symbol: str, qty: int, side: str, reason: str = ""):
+    # ---------- Órdenes ----------
+    def submit_market_order(self, symbol: str, qty, side: str, reason: str = ""):
         try:
+            crypto = is_crypto(symbol)
             order_req = MarketOrderRequest(
                 symbol=symbol, qty=qty,
                 side=OrderSide.BUY if side == "buy" else OrderSide.SELL,
-                time_in_force=TimeInForce.DAY,
+                # Cripto no acepta DAY: solo GTC o IOC.
+                time_in_force=TimeInForce.GTC if crypto else TimeInForce.DAY,
             )
             order = self.trading_client.submit_order(order_req)
             log_order(symbol, side, qty, str(order.id), str(order.status), reason)
@@ -89,6 +126,7 @@ class AlpacaBroker:
         return None
 
     def submit_trailing_stop_sell(self, symbol: str, qty: int, trail_percent: float, reason: str = ""):
+        """Solo acciones. Para cripto el trailing stop lo maneja el agente (ver main.py)."""
         try:
             order_req = TrailingStopOrderRequest(
                 symbol=symbol, qty=qty, side=OrderSide.SELL,
@@ -104,7 +142,8 @@ class AlpacaBroker:
 
     def close_position(self, symbol: str, reason: str = "stop/target/manual"):
         try:
-            self.trading_client.close_position(symbol)
+            # Las posiciones cripto se cierran con el símbolo sin barra (BTCUSD).
+            self.trading_client.close_position(norm_symbol(symbol) if is_crypto(symbol) else symbol)
             log_event("info", f"Posición cerrada: {symbol} — motivo: {reason}")
             return True
         except Exception as e:
@@ -136,5 +175,6 @@ class AlpacaBroker:
             log_event("error", f"Falló la cancelación de órdenes de {symbol}: {e}")
 
     def is_market_open(self) -> bool:
+        """Solo aplica a acciones. La cripto opera 24/7."""
         clock = self.trading_client.get_clock()
         return clock.is_open
