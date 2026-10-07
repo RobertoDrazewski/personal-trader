@@ -18,19 +18,22 @@ LANDING_CSS = """
 .block-container {max-width: 1080px !important; padding-top: 2.2vh !important;}
 .ln-hero {display: flex; flex-direction: column; align-items: center; text-align: center; padding: 6px 0 4px;}
 .ln-orb {position: relative; width: min(260px, 62vw); aspect-ratio: 1; display: grid; place-items: center; margin: 4px 0 2px;}
-.ln-halo {position: absolute; inset: 6%; border-radius: 50%;
-          background: radial-gradient(circle, rgba(79,209,232,.30) 0%, rgba(192,138,78,.14) 45%, transparent 70%);
-          filter: blur(14px); animation: lnpulse 5s ease-in-out infinite;}
-.ln-orb img.ic {position: relative; width: 60%; height: auto; border-radius: 22%;
-                box-shadow: 0 0 46px rgba(79,209,232,.38), 0 0 110px rgba(192,138,78,.20); animation: lnfloat 7s ease-in-out infinite;}
+.ln-halo {position: absolute; inset: -6%; border-radius: 50%;
+          background: radial-gradient(circle, rgba(79,209,232,.34) 0%, rgba(192,138,78,.18) 40%, rgba(79,209,232,.06) 62%, transparent 74%);
+          filter: blur(16px); animation: lnpulse 5s ease-in-out infinite;}
+.ln-orb img.ic {position: relative; width: 64%; height: auto;
+                filter: drop-shadow(0 0 6px rgba(120,225,255,.65)) drop-shadow(0 0 22px rgba(79,209,232,.55)) drop-shadow(0 0 54px rgba(192,138,78,.40));
+                animation: lnfloat 7s ease-in-out infinite, lnglow 4.5s ease-in-out infinite;}
 .ln-ring {position: absolute; border-radius: 50%; border: 1px solid rgba(120,170,255,.22);}
-.ln-ring.r1 {inset: 0; animation: lnspin 38s linear infinite;}
+.ln-ring.r1 {inset: 0; animation: lnspin 38s linear infinite;
+             box-shadow: 0 0 26px rgba(79,209,232,.20), inset 0 0 26px rgba(79,209,232,.10); border-color: rgba(120,200,255,.34);}
 .ln-ring.r2 {inset: -9%; border-style: dashed; border-color: rgba(120,170,255,.16); animation: lnspin 70s linear infinite reverse;}
-.ln-ring.r3 {inset: 13%; border-color: rgba(120,170,255,.12); animation: lnspin 26s linear infinite;}
+.ln-ring.r3 {inset: 13%; border-color: rgba(120,170,255,.16); animation: lnspin 26s linear infinite;
+             box-shadow: 0 0 18px rgba(192,138,78,.14), inset 0 0 18px rgba(192,138,78,.08);}
 .ln-dot {position: absolute; width: 9px; height: 9px; border-radius: 50%; margin: -4.5px 0 0 -4.5px;}
-.ln-dot.g {background: #3EE89A; box-shadow: 0 0 12px #3EE89A;}
-.ln-dot.y {background: #F5C84B; box-shadow: 0 0 12px #F5C84B;}
-.ln-dot.r {background: #FF5F6D; box-shadow: 0 0 12px #FF5F6D;}
+.ln-dot.g {background: #3EE89A; box-shadow: 0 0 6px #3EE89A, 0 0 16px #3EE89A;}
+.ln-dot.y {background: #F5C84B; box-shadow: 0 0 6px #F5C84B, 0 0 16px #F5C84B;}
+.ln-dot.r {background: #FF5F6D; box-shadow: 0 0 6px #FF5F6D, 0 0 16px #FF5F6D;}
 .ln-title {font: 700 clamp(28px, 7vw, 44px)/1.05 'Chakra Petch', sans-serif; letter-spacing: .26em; margin: 6px 0 0; padding-left: .26em; color: #EAF1FB;}
 .ln-title2 {font: 600 clamp(13px, 3.6vw, 18px) 'Chakra Petch', sans-serif; letter-spacing: .5em; padding-left: .5em; margin: 6px 0 14px;
             background: linear-gradient(90deg, #D9A05B, #4FD1E8); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;}
@@ -89,6 +92,8 @@ details.ln-card[open] summary::after {content: "\\2212";}
 [class*="st-key-cta_"] button p {font: inherit; color: inherit;}
 @keyframes lnspin {to {transform: rotate(360deg);}}
 @keyframes lnfloat {0%, 100% {transform: translateY(0);} 50% {transform: translateY(-7px);}}
+@keyframes lnglow {0%, 100% {filter: drop-shadow(0 0 6px rgba(120,225,255,.55)) drop-shadow(0 0 20px rgba(79,209,232,.45)) drop-shadow(0 0 46px rgba(192,138,78,.32));}
+                   50% {filter: drop-shadow(0 0 9px rgba(150,235,255,.85)) drop-shadow(0 0 30px rgba(79,209,232,.70)) drop-shadow(0 0 70px rgba(192,138,78,.50));}}
 @keyframes lnpulse {0%, 100% {opacity: .75; transform: scale(1);} 50% {opacity: 1; transform: scale(1.06);}}
 @media (prefers-reduced-motion: reduce) {.ln-ring, .ln-halo, .ln-orb img.ic {animation: none;}}
 </style>
@@ -200,7 +205,7 @@ def render_landing(img_b64, equity_df, sigs, positions, asteroid_fn, style_fig, 
     """Dibuja la portada pública. `on_enter` se llama al tocar los botones que llevan al panel completo."""
     st.markdown(LANDING_CSS, unsafe_allow_html=True)
 
-    icon = img_b64("icon-512.png")
+    icon = img_b64("hero_logo.png") or img_b64("icon-512.png")
     icon_html = f'<img class="ic" src="data:image/png;base64,{icon}" alt="Puma Code Trading Agent">' if icon else ""
 
     # ---- Hero ----
