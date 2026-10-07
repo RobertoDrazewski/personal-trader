@@ -166,24 +166,106 @@ h1, h2, h3, h4 {font-family: 'Chakra Petch', sans-serif !important; letter-spaci
 
 init_db()
 
+def img_b64(filename: str):
+    """Imagen de static/ embebida en base64 (no depende de que Streamlit sirva el archivo)."""
+    try:
+        with open(os.path.join(STATIC_DIR, filename), "rb") as f:
+            return base64.b64encode(f.read()).decode()
+    except Exception:
+        return None
+
+
+# =========================================================================
+# PORTADA (pantalla de acceso)
+# =========================================================================
+LOGIN_CSS = """
+<style>
+[data-testid="stToolbar"], [data-testid="stDecoration"] {display: none;}
+.block-container {max-width: 560px !important; padding-top: 3vh !important;}
+.lg-hero {display: flex; flex-direction: column; align-items: center; text-align: center;}
+.lg-orb {position: relative; width: min(300px, 68vw); aspect-ratio: 1; display: grid; place-items: center; margin: 10px 0 6px;}
+.lg-halo {position: absolute; inset: 6%; border-radius: 50%;
+          background: radial-gradient(circle, rgba(79,209,232,.30) 0%, rgba(192,138,78,.14) 45%, transparent 70%);
+          filter: blur(14px); animation: lgpulse 5s ease-in-out infinite;}
+.lg-orb img.ic {position: relative; width: 60%; height: auto; border-radius: 22%;
+                box-shadow: 0 0 46px rgba(79,209,232,.38), 0 0 110px rgba(192,138,78,.20);
+                animation: lgfloat 7s ease-in-out infinite;}
+.lg-ring {position: absolute; border-radius: 50%; border: 1px solid rgba(120,170,255,.22);}
+.lg-ring.r1 {inset: 0; animation: lgspin 38s linear infinite;}
+.lg-ring.r2 {inset: -9%; border-style: dashed; border-color: rgba(120,170,255,.16); animation: lgspin 70s linear infinite reverse;}
+.lg-ring.r3 {inset: 13%; border-color: rgba(120,170,255,.12); animation: lgspin 26s linear infinite;}
+.lg-dot {position: absolute; width: 9px; height: 9px; border-radius: 50%; margin: -4.5px 0 0 -4.5px;}
+.lg-dot.g {background: #3EE89A; box-shadow: 0 0 12px #3EE89A;}
+.lg-dot.y {background: #F5C84B; box-shadow: 0 0 12px #F5C84B;}
+.lg-dot.r {background: #FF5F6D; box-shadow: 0 0 12px #FF5F6D;}
+.lg-title {font: 700 clamp(26px, 7vw, 38px)/1.05 'Chakra Petch', sans-serif; letter-spacing: .26em; margin: 8px 0 0; padding-left: .26em; color: #EAF1FB;}
+.lg-title2 {font: 600 clamp(13px, 3.6vw, 17px) 'Chakra Petch', sans-serif; letter-spacing: .5em; padding-left: .5em; margin: 6px 0 14px;
+            background: linear-gradient(90deg, #D9A05B, #4FD1E8); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;}
+.lg-chips {display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin-bottom: 6px;}
+.lg-chips span {font: 600 10px 'Chakra Petch', sans-serif; letter-spacing: .14em; padding: 5px 10px; border-radius: 999px;
+                border: 1px solid rgba(120,170,255,.28); color: #9FB4D6; background: rgba(9,15,29,.6);}
+.lg-chips span.p {border-color: rgba(245,200,75,.5); color: #F5C84B; background: rgba(245,200,75,.08);}
+.lg-foot {text-align: center; margin-top: 26px; font: 500 10px 'Chakra Petch', sans-serif; letter-spacing: .22em; color: #5E7194;}
+.lg-foot img {height: 34px; width: auto; display: block; margin: 0 auto 8px; opacity: .85;}
+.st-key-lg_form {max-width: 380px; margin: 14px auto 0; padding: 16px 18px 6px; border-radius: 12px;
+                 background: rgba(9,15,29,.74); border: 1px solid rgba(120,170,255,.20); backdrop-filter: blur(8px);
+                 box-shadow: 0 0 40px rgba(60,100,200,.10);}
+.st-key-lg_form [data-testid="stForm"] {border: 0; padding: 0;}
+.st-key-lg_form .stElementContainer:has(.stFormSubmitButton), .st-key-lg_form .stElementContainer:has(.stFormSubmitButton) div {width: 100% !important;}
+.st-key-lg_form button {width: 100% !important; font-family: 'Chakra Petch', sans-serif; letter-spacing: .14em; text-transform: uppercase;
+                        border-color: rgba(62,232,154,.55) !important; color: #3EE89A !important;}
+.st-key-lg_form button:hover {background: rgba(62,232,154,.10) !important;}
+@keyframes lgspin {to {transform: rotate(360deg);}}
+@keyframes lgfloat {0%, 100% {transform: translateY(0);} 50% {transform: translateY(-7px);}}
+@keyframes lgpulse {0%, 100% {opacity: .75; transform: scale(1);} 50% {opacity: 1; transform: scale(1.06);}}
+@media (prefers-reduced-motion: reduce) {.lg-ring, .lg-halo, .lg-orb img.ic {animation: none;}}
+</style>
+"""
+
+
+def render_login_hero():
+    icon = img_b64("icon-512.png")
+    icon_html = f'<img class="ic" src="data:image/png;base64,{icon}" alt="Puma Code Trading Agent">' if icon else ""
+    st.markdown(LOGIN_CSS, unsafe_allow_html=True)
+    st.markdown(
+        '<div class="lg-hero"><div class="lg-orb">'
+        '<div class="lg-halo"></div>'
+        '<div class="lg-ring r2"><i class="lg-dot y" style="left:50%;top:0"></i><i class="lg-dot g" style="left:100%;top:50%"></i></div>'
+        '<div class="lg-ring r1"><i class="lg-dot g" style="left:14.6%;top:14.6%"></i><i class="lg-dot r" style="left:85.4%;top:85.4%"></i>'
+        '<i class="lg-dot y" style="left:50%;top:100%"></i></div>'
+        '<div class="lg-ring r3"><i class="lg-dot g" style="left:50%;top:0"></i></div>'
+        f'{icon_html}</div>'
+        '<div class="lg-title">PUMA CODE</div><div class="lg-title2">TRADING AGENT</div>'
+        '<div class="lg-chips"><span>ACCIONES</span><span>CRIPTO 24/7</span><span>RIESGO CONTROLADO</span>'
+        '<span class="p">PAPER · SIN DINERO REAL</span></div></div>',
+        unsafe_allow_html=True,
+    )
+
+
+def render_login_footer():
+    logo = img_b64("header_logo.png")
+    foot_logo = f'<img src="data:image/png;base64,{logo}" alt="Puma Code">' if logo else ""
+    st.markdown(f'<div class="lg-foot">{foot_logo}PUMA CODE · MENDOZA, ARGENTINA</div>', unsafe_allow_html=True)
+
+
 # --- Contraseña simple ---
 APP_PASSWORD = os.getenv("APP_PASSWORD", "")
 if APP_PASSWORD:
     if "authenticated" not in st.session_state:
         st.session_state["authenticated"] = False
     if not st.session_state["authenticated"]:
-        try:
-            st.image(os.path.join(STATIC_DIR, "header_logo.png"), width=90)
-        except Exception:
-            pass
-        st.title(APP_TITLE)
-        pwd = st.text_input("Contraseña", type="password")
-        if st.button("Entrar"):
-            if pwd == APP_PASSWORD:
-                st.session_state["authenticated"] = True
-                st.rerun()
-            else:
-                st.error("Contraseña incorrecta.")
+        render_login_hero()
+        with st.container(key="lg_form"):
+            with st.form("login", border=False):
+                pwd = st.text_input("Contraseña", type="password", placeholder="Contraseña de acceso")
+                entered = st.form_submit_button("Entrar al panel")
+            if entered:
+                if pwd == APP_PASSWORD:
+                    st.session_state["authenticated"] = True
+                    st.rerun()
+                else:
+                    st.error("Contraseña incorrecta.")
+        render_login_footer()
         st.stop()
 
 
