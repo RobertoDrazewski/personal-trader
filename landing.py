@@ -83,6 +83,11 @@ details.ln-card[open] summary::after {content: "\\2212";}
 .ln-note {margin-top: 12px; font-size: 12px; color: #7F93B4; line-height: 1.5; max-width: 760px;}
 .ln-foot {text-align: center; margin: 34px 0 6px; font: 500 10px 'Chakra Petch', sans-serif; letter-spacing: .22em; color: #5E7194;}
 .ln-foot img {height: 36px; width: auto; display: block; margin: 0 auto 8px; opacity: .85;}
+[class*="st-key-admin_pop"] {align-items: center !important; margin-bottom: 18px;}
+[class*="st-key-admin_pop"] button {font: 500 10px 'Chakra Petch', sans-serif; letter-spacing: .24em; text-transform: uppercase; min-height: 0; padding: 2px 10px;
+                                    border: 0 !important; background: transparent !important; color: #5E7194 !important; opacity: .55;}
+[class*="st-key-admin_pop"] button:hover {opacity: 1; color: #9FB4D6 !important;}
+[class*="st-key-admin_pop"] button p {font: inherit; color: inherit;}
 [class*="st-key-cta_"] {align-items: center !important; margin: 10px 0;}
 [class*="st-key-cta_"] .stElementContainer, [class*="st-key-cta_"] .stButton {width: auto !important; display: flex; justify-content: center;}
 [class*="st-key-cta_"] button {padding: 12px 34px; border-radius: 999px; border: 0 !important; font: 700 15px 'Chakra Petch', sans-serif; letter-spacing: .12em;
@@ -230,7 +235,7 @@ def _fmt1(x: float, sign: bool = False) -> str:
     return (f"{x:+.1f}" if sign else f"{x:.1f}").replace(".", ",")
 
 
-def render_landing(img_b64, equity_df, sigs, positions, asteroid_fn, style_fig, on_enter, fetch_bars=None):
+def render_landing(img_b64, equity_df, sigs, positions, asteroid_fn, style_fig, on_enter, fetch_bars=None, admin_login=None, admin_enabled=False):
     """Dibuja la portada pública. `on_enter` se llama al tocar los botones que llevan al panel completo."""
     st.markdown(LANDING_CSS, unsafe_allow_html=True)
 
@@ -382,7 +387,7 @@ def render_landing(img_b64, equity_df, sigs, positions, asteroid_fn, style_fig, 
                 f'<div class="s">en {btc["days"]} días</div></div>'
                 f'<div class="ln-stat"><div class="k">Rango</div><div class="v" style="font-size:20px">{_fmt1(btc["rng"])}%</div>'
                 '<div class="s">de máximo a mínimo</div></div>'
-                f'<div class="ln-stat"><div class="k">Peor día</div><div class="v" style="font-size:20px;color:{R}">{_fmt1(btc["worst"], True)}%</div>'
+                f'<div class="ln-stat"><div class="k">Peor día</div><div class="v" style="font-size:20px;color:{R if btc["worst"] < 0 else G}">{_fmt1(btc["worst"], True)}%</div>'
                 f'<div class="s">mejor día {_fmt1(btc["best"], True)}%</div></div></div>'
                 f'<div class="ln-note">Bitcoin {verbo} y se mueve con fuerza de un día para otro. Por eso el agente usa velas lentas, '
                 'posiciones chicas y un freno automático. Datos reales de los últimos días, velas de 1 hora.</div>',
@@ -411,3 +416,20 @@ def render_landing(img_b64, equity_df, sigs, positions, asteroid_fn, style_fig, 
     logo = img_b64("header_logo.png")
     foot_logo = f'<img src="data:image/png;base64,{logo}" alt="Puma Code">' if logo else ""
     st.markdown(f'<div class="ln-foot">{foot_logo}PUMA CODE · MENDOZA, ARGENTINA</div>', unsafe_allow_html=True)
+
+    # ---- Acceso de administrador (chico, en el footer) ----
+    if admin_login is not None:
+        with st.container(key="admin_pop"):
+            with st.popover("admin"):
+                if not admin_enabled:
+                    st.caption("No hay contraseña de administrador configurada (variable ADMIN_PASSWORD).")
+                else:
+                    with st.form("admin_form", border=False):
+                        pw = st.text_input("Contraseña de administrador", type="password")
+                        ok = st.form_submit_button("Entrar")
+                    if ok:
+                        if admin_login(pw):
+                            on_enter()
+                            st.rerun()
+                        else:
+                            st.error("Contraseña incorrecta.")

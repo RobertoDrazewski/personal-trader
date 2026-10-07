@@ -6,6 +6,7 @@ asteroide 3D con las señales en vivo, y todos los paneles de siempre
 """
 import os
 import re
+import hmac
 import time
 import json
 import base64
@@ -679,6 +680,15 @@ def mini_candle(df, bars=60):
 # =========================================================================
 # LANDING (entrada pública) o PANEL EN VIVO. El enlace ?panel=1 abre el panel directo.
 # =========================================================================
+def admin_login(pw: str) -> bool:
+    """Valida la contraseña de administrador; si es correcta, esta sesión puede usar los controles."""
+    if ADMIN_PASSWORD and hmac.compare_digest((pw or "").encode(), ADMIN_PASSWORD.encode()):
+        st.session_state["admin"] = True
+        return True
+    time.sleep(1)   # freno simple contra adivinar la clave a fuerza bruta
+    return False
+
+
 def go_panel():
     st.session_state["view"] = "panel"
     st.query_params["panel"] = "1"
@@ -703,6 +713,7 @@ if st.session_state["view"] == "landing":
     render_landing(
         img_b64=img_b64, equity_df=_eq, sigs=latest_signals(), positions=_pos,
         asteroid_fn=asteroid, style_fig=style_fig, on_enter=go_panel, fetch_bars=fetch_bars,
+        admin_login=admin_login, admin_enabled=bool(ADMIN_PASSWORD),
     )
     st.stop()
 
