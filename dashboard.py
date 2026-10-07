@@ -593,6 +593,11 @@ window.addEventListener("pointerup", function(e){
   // mientras hay una ficha abierta, el asteroide queda quieto para poder leerla
   resumeT = setTimeout(function(){ if (selected < 0) auto = true; }, 2500);
 });
+// en el celular, si el navegador toma el gesto para hacer scroll, el arrastre se cancela: hay que soltarlo igual
+window.addEventListener("pointercancel", function(){
+  drag = false;
+  resumeT = setTimeout(function(){ if (selected < 0) auto = true; }, 800);
+});
 window.addEventListener("pointermove", function(e){
   if (drag){ moved = Math.max(moved, Math.abs(e.clientX - downX) + Math.abs(e.clientY - downY)); group.rotation.y += (e.clientX - lastX) * 0.008; lastX = e.clientX; }
 });
@@ -605,8 +610,9 @@ resize(); window.addEventListener("resize", resize);
 var reduce = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 var v = new THREE.Vector3();
 function frame(t){
-  if (auto && !reduce) group.rotation.y += 0.0028;
-  mat.size = 0.06 + 0.006 * Math.sin(t / 700);
+  // con "Reducir movimiento" activado (común en iPhone) gira más lento en vez de quedarse quieto
+  if (auto) group.rotation.y += reduce ? 0.0012 : 0.0028;
+  mat.size = reduce ? 0.06 : 0.06 + 0.006 * Math.sin(t / 700);
   renderer.render(scene, camera);
   group.updateMatrixWorld();
   var w = wrap.clientWidth, h = wrap.clientHeight;
