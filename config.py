@@ -68,6 +68,10 @@ class Config:
     CRYPTO_TRAILING_STOP_PCT = _get_float("CRYPTO_TRAILING_STOP_PCT", 0.05)
     # Comisión taker de Alpaca cripto (por lado). Solo la usa el backtest.
     CRYPTO_FEE_PCT = _get_float("CRYPTO_FEE_PCT", 0.0025)
+    # Deslizamiento estimado por lado (diferencia entre el precio visto y el de la ejecución real, spread incluido).
+    # Lo usa el backtest para no mostrar resultados más lindos que la realidad. Son estimaciones, no medidas.
+    CRYPTO_SLIPPAGE_PCT = _get_float("CRYPTO_SLIPPAGE_PCT", 0.0010)
+    SLIPPAGE_PCT = _get_float("SLIPPAGE_PCT", 0.0005)
 
     # --- Ritmo conservador de la cripto ---
     # El backtest mostró que con velas de 15 min la estrategia opera ~2 veces por día por par y las

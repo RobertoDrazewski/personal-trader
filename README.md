@@ -176,7 +176,7 @@ Diferencias con las acciones:
   `POLL_INTERVAL_SECONDS` (por defecto `CRYPTO_TRAILING_STOP_PCT`=5%) y vende a
   mercado si el precio cae ese porcentaje desde su pico. Sigue activo aunque el
   trading esté pausado o el kill switch encendido.
-- Comisión de Alpaca cripto (~0,25% por lado) incluida en el backtest.
+- Comisión de Alpaca cripto (~0,25% por lado) y un deslizamiento estimado (`CRYPTO_SLIPPAGE_PCT`, 0,10%; acciones `SLIPPAGE_PCT`, 0,05%) incluidos en el backtest. En vivo, los frenos de pérdida (diaria y por racha) descuentan la comisión estimada de entrada y salida.
 - Cantidades fraccionarias (0,0733 BTC), no enteras.
 
 **Ritmo conservador y stop trading (cripto)** — todo configurable por variables:

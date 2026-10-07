@@ -105,7 +105,8 @@ def fast_signal(w: np.ndarray, sma_fast_len: int, sma_slow_len: int, rsi_len: in
 def simulate(df: pd.DataFrame, symbol: str, lookback: int,
              sma_fast_len: int = 10, sma_slow_len: int = 30, rsi_len: int = 14, rsi_buy_max: float = 70,
              stop_loss_pct: float = None, trailing_stop_pct: float = None, max_position_pct: float = None,
-             fee_pct: float = None, cooldown_bars: int = None, max_buys_per_day: int = None):
+             fee_pct: float = None, cooldown_bars: int = None, max_buys_per_day: int = None,
+             slippage_pct: float = None):
     crypto = is_crypto(symbol)
     stop_loss_pct = Config.STOP_LOSS_PCT if stop_loss_pct is None else stop_loss_pct
     if trailing_stop_pct is None:
@@ -114,6 +115,10 @@ def simulate(df: pd.DataFrame, symbol: str, lookback: int,
         max_position_pct = Config.CRYPTO_MAX_POSITION_PCT if crypto else Config.MAX_POSITION_PCT
     if fee_pct is None:
         fee_pct = Config.CRYPTO_FEE_PCT if crypto else 0.0
+    # Costo total por lado = comisión + deslizamiento estimado (así el backtest no es más optimista que la realidad).
+    if slippage_pct is None:
+        slippage_pct = Config.CRYPTO_SLIPPAGE_PCT if crypto else Config.SLIPPAGE_PCT
+    fee_pct = fee_pct + slippage_pct
 
     # Ritmo conservador de la cripto (igual que en el agente): pausa tras cada cierre y tope de compras por día.
     if crypto:

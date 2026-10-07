@@ -36,6 +36,14 @@ def critical(message: str):
     send_alert(f"🚨 CRÍTICO — {message}")
 
 
+def crypto_net_pnl(unrealized_pl: float, market_value: float) -> float:
+    """P&L de una posición cripto descontando las comisiones estimadas de entrada y salida (CRYPTO_FEE_PCT por lado).
+    El P&L que informa el broker no incluye la comisión de la venta, así que sin esto los frenos verían menos pérdida."""
+    mv = abs(float(market_value))
+    entry_value = mv - float(unrealized_pl)
+    return float(unrealized_pl) - Config.CRYPTO_FEE_PCT * (entry_value + mv)
+
+
 def register_crypto_close(symbol: str, pnl):
     """Anota un cierre cripto (pausa, resultado del día y racha). Si la racha de pérdidas llega al máximo, frena la cripto."""
     crypto_note_close(symbol)
@@ -55,13 +63,13 @@ def check_crypto_daily_loss(broker: AlpacaBroker, positions, equity: float):
     if pct <= 0 or crypto_halt_reason():
         return
     crypto_pos = [p for p in positions if broker.is_crypto_position(p)]
-    total = crypto_pl_today() + sum(float(p.unrealized_pl) for p in crypto_pos)
+    total = crypto_pl_today() + sum(crypto_net_pnl(p.unrealized_pl, p.market_value) for p in crypto_pos)
     if total > -equity * pct:
         return
     why = f"pérdida cripto del día ${total:,.2f} (límite {pct:.1%} del equity)"
     crypto_halt(why, until_tomorrow=True)
     for p in crypto_pos:
-        pnl = float(p.unrealized_pl)
+        pnl = crypto_net_pnl(p.unrealized_pl, p.market_value)
         if broker.close_position(p.symbol, reason="stop trading cripto"):
             _clear_peak(p.symbol)
             register_crypto_close(p.symbol, pnl)
@@ -118,7 +126,7 @@ def protect_crypto_positions(broker: AlpacaBroker, positions=None):
             stop_price = peak * (1 - trail)
             if price <= stop_price:
                 reason = f"trailing stop cripto {trail:.1%} (pico {peak:,.2f}, precio {price:,.2f})"
-                pnl = float(p.unrealized_pl)
+                pnl = crypto_net_pnl(p.unrealized_pl, p.market_value)
                 if broker.close_position(p.symbol, reason=reason):
                     _clear_peak(p.symbol)
                     register_crypto_close(p.symbol, pnl)
@@ -215,7 +223,8 @@ def process_symbol(broker: AlpacaBroker, risk: RiskEngine, symbol: str, equity: 
     elif result["signal"] == "sell" and has_position:
         if not crypto:
             broker.cancel_open_orders_for_symbol(symbol)
-        pnl = broker.get_position_pl(symbol) if crypto else None
+        vals = broker.get_position_values(symbol) if crypto else None
+        pnl = crypto_net_pnl(*vals) if vals else None
         if broker.close_position(symbol, reason=result["reason"]):
             held.discard(norm_symbol(symbol))
             counts[kind] -= 1

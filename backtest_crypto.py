@@ -100,7 +100,7 @@ def main():
 
     good = [r[0] for r in rows if verdict(r[1], r[2], r[3]) == "consistente"]
     print("\n* B&H = comprar y mantener con la misma exposición que usa la estrategia.")
-    print("  Retorno medido sobre USD 10.000 por par; incluye comisión de {:.2%} por lado.".format(Config.CRYPTO_FEE_PCT))
+    print("  Retorno medido sobre USD 10.000 por par; incluye comisión de {:.2%} + deslizamiento estimado de {:.2%} por lado.".format(Config.CRYPTO_FEE_PCT, Config.CRYPTO_SLIPPAGE_PCT))
     if good:
         print(f"\nPares consistentes: {', '.join(good)}")
         print(f"Para activarlos en Railway (servicio agent):  CRYPTO_SYMBOLS={','.join(good[:3])}")

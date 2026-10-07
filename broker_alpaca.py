@@ -61,11 +61,11 @@ class AlpacaBroker:
         value = getattr(asset_class, "value", asset_class)
         return str(value).lower() == "crypto"
 
-    def get_position_pl(self, symbol: str):
-        """P&L no realizado (USD) de una posición abierta, o None si no se pudo leer."""
+    def get_position_values(self, symbol: str):
+        """(P&L no realizado, valor de mercado) en USD de una posición abierta, o None si no se pudo leer."""
         try:
             pos = self.trading_client.get_open_position(norm_symbol(symbol) if is_crypto(symbol) else symbol)
-            return float(pos.unrealized_pl)
+            return float(pos.unrealized_pl), float(pos.market_value)
         except Exception:
             return None
 
