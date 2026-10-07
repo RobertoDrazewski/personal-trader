@@ -4,6 +4,7 @@ Portada pública del Puma-Code Trading Agent (demo en paper trading).
 Explica qué es, usa datos reales de la base (equity, señales, asteroide 3D) y lleva al panel completo con un botón.
 No tiene contraseña: no muestra ni permite nada sensible (los controles del panel piden clave de administrador).
 """
+from datetime import datetime
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
@@ -88,6 +89,8 @@ details.ln-card[open] summary::after {content: "\\2212";}
 .ln-sub {font: 600 11px 'Chakra Petch', sans-serif; letter-spacing: .16em; color: #9FB4D6; text-transform: uppercase; margin: 6px 0 2px;}
 .ln-note {margin-top: 12px; font-size: 12px; color: #7F93B4; line-height: 1.5; max-width: 760px;}
 .ln-foot {text-align: center; margin: 34px 0 6px; font: 500 10px 'Chakra Petch', sans-serif; letter-spacing: .22em; color: #5E7194;}
+.ln-legal {max-width: 640px; margin: 10px auto 0; text-align: center; font: 400 10px/1.55 'Chakra Petch', sans-serif; color: #5E7194; opacity: .85;}
+.ln-legal b {font-weight: 600; color: #7E90B3;}
 .ln-foot img {height: 36px; width: auto; display: block; margin: 0 auto 8px; opacity: .85;}
 [class*="st-key-admin_pop"] {align-items: center !important; margin-bottom: 18px;}
 [class*="st-key-admin_pop"] button {font: 500 10px 'Chakra Petch', sans-serif; letter-spacing: .24em; text-transform: uppercase; min-height: 0; padding: 2px 10px;
@@ -628,6 +631,17 @@ def render_landing(img_b64, equity_df, sigs, positions, asteroid_fn, style_fig, 
     logo = img_b64("header_logo.png")
     foot_logo = f'<img src="data:image/png;base64,{logo}" alt="Puma Code">' if logo else ""
     st.markdown(f'<div class="ln-foot">{foot_logo}PUMA CODE · MENDOZA, ARGENTINA</div>', unsafe_allow_html=True)
+    st.markdown(
+        '<div class="ln-legal">'
+        '<b>Aviso:</b> Puma Code no se hace responsable de las decisiones ni de las acciones que cualquier persona '
+        'tome con su dinero a partir de lo que se muestra acá. Es una demo educativa en paper trading; no es '
+        'asesoramiento financiero.<br>'
+        '<b>Fuentes:</b> precios de acciones (feed IEX), precios de cripto y noticias: Alpaca Markets (alpaca.markets). '
+        'Datos de fuentes confiables; pueden tener demora o errores.<br>'
+        f'© {datetime.now().year} Puma Code. Todos los derechos reservados.'
+        '</div>',
+        unsafe_allow_html=True,
+    )
 
     # ---- Acceso de administrador (chico, en el footer) ----
     if admin_login is not None:
