@@ -40,7 +40,15 @@ def fetch_history(client, symbol: str, days_back: int, minutes: int) -> pd.DataF
     """`client` es el cliente de acciones; para pares cripto se usa el cliente cripto automáticamente."""
     end = datetime.now(timezone.utc)
     start = end - timedelta(days=days_back)
-    timeframe = TimeFrame(minutes, TimeFrameUnit.Minute) if minutes != 1440 else TimeFrame.Day
+    # Alpaca solo acepta 1-59 con unidad Minuto: de 60 en adelante hay que pedir Horas (60 -> 1Hour, 240 -> 4Hour).
+    if minutes == 1440:
+        timeframe = TimeFrame.Day
+    elif minutes < 60:
+        timeframe = TimeFrame(minutes, TimeFrameUnit.Minute)
+    elif minutes % 60 == 0 and minutes // 60 <= 23:
+        timeframe = TimeFrame(minutes // 60, TimeFrameUnit.Hour)
+    else:
+        raise ValueError(f"Timeframe no soportado: {minutes} min (usá 1-59, múltiplos de 60 hasta 1380, o 1440)")
     if is_crypto(symbol):
         req = CryptoBarsRequest(symbol_or_symbols=symbol, timeframe=timeframe, start=start, end=end)
         bars = _get_crypto_client().get_crypto_bars(req)
@@ -97,7 +105,7 @@ def fast_signal(w: np.ndarray, sma_fast_len: int, sma_slow_len: int, rsi_len: in
 def simulate(df: pd.DataFrame, symbol: str, lookback: int,
              sma_fast_len: int = 10, sma_slow_len: int = 30, rsi_len: int = 14, rsi_buy_max: float = 70,
              stop_loss_pct: float = None, trailing_stop_pct: float = None, max_position_pct: float = None,
-             fee_pct: float = None):
+             fee_pct: float = None, cooldown_bars: int = None, max_buys_per_day: int = None):
     crypto = is_crypto(symbol)
     stop_loss_pct = Config.STOP_LOSS_PCT if stop_loss_pct is None else stop_loss_pct
     if trailing_stop_pct is None:
@@ -106,6 +114,21 @@ def simulate(df: pd.DataFrame, symbol: str, lookback: int,
         max_position_pct = Config.CRYPTO_MAX_POSITION_PCT if crypto else Config.MAX_POSITION_PCT
     if fee_pct is None:
         fee_pct = Config.CRYPTO_FEE_PCT if crypto else 0.0
+
+    # Ritmo conservador de la cripto (igual que en el agente): pausa tras cada cierre y tope de compras por día.
+    if crypto:
+        if cooldown_bars is None:
+            try:
+                bar_min = max(1, int(round(pd.Series(df.index).diff().dropna().median().total_seconds() / 60)))
+            except Exception:
+                bar_min = max(1, Config.CRYPTO_TIMEFRAME_MINUTES)
+            cooldown_bars = -(-Config.CRYPTO_COOLDOWN_MINUTES // bar_min) if Config.CRYPTO_COOLDOWN_MINUTES > 0 else 0
+        if max_buys_per_day is None:
+            max_buys_per_day = Config.CRYPTO_MAX_TRADES_PER_DAY
+    cooldown_bars = cooldown_bars or 0
+    max_buys_per_day = max_buys_per_day or 0
+    last_exit_i = -10 ** 9
+    buys_by_day = {}
 
     cash = STARTING_CAPITAL_PER_SYMBOL
     position_qty = 0.0
@@ -134,7 +157,9 @@ def simulate(df: pd.DataFrame, symbol: str, lookback: int,
                 cash += proceeds
                 trades.append({"entry": entry_price, "exit": price, "qty": position_qty, "pnl": pnl, "exit_ts": str(ts)})
                 position_qty = 0.0
-        elif result["signal"] == "buy":
+                last_exit_i = i
+        elif (result["signal"] == "buy" and i - last_exit_i >= cooldown_bars
+              and (max_buys_per_day <= 0 or buys_by_day.get(str(ts)[:10], 0) < max_buys_per_day)):
             max_dollars = cash * max_position_pct
             # Acciones: cantidad entera. Cripto: fraccionaria.
             qty = (max_dollars / (price * (1 + fee_pct))) if crypto else int(max_dollars // price)
@@ -145,6 +170,7 @@ def simulate(df: pd.DataFrame, symbol: str, lookback: int,
                 trailing_stop = round(price * (1 - trailing_stop_pct), 6)
                 cash -= qty * price * (1 + fee_pct)
                 position_qty = qty
+                buys_by_day[str(ts)[:10]] = buys_by_day.get(str(ts)[:10], 0) + 1
 
         current_equity = cash + (position_qty * price if position_qty else 0)
         equity_curve.append({"ts": str(ts), "equity": current_equity})
@@ -180,33 +206,60 @@ def simulate(df: pd.DataFrame, symbol: str, lookback: int,
     }
 
 
+MAX_CURVE_POINTS = 600   # la curva se guarda resumida: con 17.000 velas por par no hace falta cada punto
+
+
 def save_to_db(run_ts: str, summary: dict):
+    """
+    Guarda el resultado en Postgres. Antes insertaba la curva punto por punto (miles de viajes a la
+    base, lentísimo) y todo en una sola transacción larga que dejaba la tabla bloqueada para el
+    dashboard. Ahora: estructura de tablas en pasos cortos, y la curva resumida y en un solo envío.
+    """
+    from psycopg2.extras import execute_values
+
     conn = psycopg2.connect(_dsn())
     try:
+        # 1) Estructura: cada paso se confirma enseguida, sin retener bloqueos.
+        conn.autocommit = True
         cur = conn.cursor()
+        cur.execute("SET lock_timeout = '10s'")
         cur.execute("""
             CREATE TABLE IF NOT EXISTS backtest_results (
                 id SERIAL PRIMARY KEY, run_ts TEXT, symbol TEXT, num_trades INTEGER,
                 win_rate REAL, total_return_pct REAL, max_drawdown_pct REAL
             )
         """)
-        # Columna agregada al sumar cripto: referencia de "comprar y mantener".
-        cur.execute("ALTER TABLE backtest_results ADD COLUMN IF NOT EXISTS buy_hold_pct REAL")
+        # Columna agregada al sumar cripto ("comprar y mantener"). Solo se altera la tabla si falta:
+        # ALTER TABLE bloquea la tabla por completo aunque la columna ya exista.
+        cur.execute("SELECT 1 FROM information_schema.columns WHERE table_name = 'backtest_results' AND column_name = 'buy_hold_pct'")
+        if cur.fetchone() is None:
+            cur.execute("ALTER TABLE backtest_results ADD COLUMN buy_hold_pct REAL")
         cur.execute("""
             CREATE TABLE IF NOT EXISTS backtest_equity_curve (
                 id SERIAL PRIMARY KEY, run_ts TEXT, symbol TEXT, ts TEXT, equity REAL
             )
         """)
+
+        # 2) Datos: una sola transacción corta, con la curva reducida a MAX_CURVE_POINTS.
+        conn.autocommit = False
+        curve = summary["equity_curve"]
+        step = max(1, len(curve) // MAX_CURVE_POINTS)
+        sampled = curve[::step]
+        if curve and sampled[-1] is not curve[-1]:
+            sampled.append(curve[-1])
+        cur = conn.cursor()
         cur.execute(
             "INSERT INTO backtest_results (run_ts, symbol, num_trades, win_rate, total_return_pct, max_drawdown_pct, buy_hold_pct) "
             "VALUES (%s, %s, %s, %s, %s, %s, %s)",
             (run_ts, summary["symbol"], summary["num_trades"], summary["win_rate"],
              summary["total_return_pct"], summary["max_drawdown_pct"], summary.get("buy_hold_pct")),
         )
-        for point in summary["equity_curve"]:
-            cur.execute(
-                "INSERT INTO backtest_equity_curve (run_ts, symbol, ts, equity) VALUES (%s, %s, %s, %s)",
-                (run_ts, summary["symbol"], point["ts"], point["equity"]),
+        if sampled:
+            execute_values(
+                cur,
+                "INSERT INTO backtest_equity_curve (run_ts, symbol, ts, equity) VALUES %s",
+                [(run_ts, summary["symbol"], p["ts"], p["equity"]) for p in sampled],
+                page_size=500,
             )
         conn.commit()
     finally:

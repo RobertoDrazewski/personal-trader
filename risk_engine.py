@@ -10,11 +10,115 @@ import json
 import math
 from datetime import datetime, timezone, date
 
-from config import Config
+from config import Config, norm_symbol
 from logger_db import log_event, get_state, set_state, delete_state
 
 STATE_KEY = "risk_state"
 KILL_SWITCH_KEY = "kill_switch"
+CRYPTO_BUYS_KEY = "crypto_buys_today"        # "YYYY-MM-DD:n"
+CRYPTO_CLOSE_PREFIX = "crypto_last_close:"   # + BTCUSD -> hora ISO del último cierre
+CRYPTO_HALT_KEY = "crypto_halt"              # "day:YYYY-MM-DD|motivo" (vence al día siguiente) o "manual|motivo"
+CRYPTO_PL_KEY = "crypto_pl_today"            # "YYYY-MM-DD:monto realizado en USD"
+CRYPTO_STREAK_KEY = "crypto_loss_streak"     # cierres cripto seguidos en pérdida
+
+
+# ---------- Ritmo conservador de la cripto ----------
+# Se guarda en la base (agent_state) para que sobreviva a los reinicios del agente en Railway.
+def _today_utc() -> str:
+    return datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
+
+def crypto_buys_today() -> int:
+    raw = get_state(CRYPTO_BUYS_KEY)
+    if raw and raw.startswith(_today_utc() + ":"):
+        try:
+            return int(raw.split(":")[1])
+        except ValueError:
+            return 0
+    return 0
+
+
+def crypto_note_buy():
+    set_state(CRYPTO_BUYS_KEY, f"{_today_utc()}:{crypto_buys_today() + 1}")
+
+
+def crypto_note_close(symbol: str):
+    set_state(CRYPTO_CLOSE_PREFIX + norm_symbol(symbol), datetime.now(timezone.utc).isoformat())
+
+
+def crypto_pl_today() -> float:
+    """Resultado cripto ya realizado hoy (UTC), en USD."""
+    raw = get_state(CRYPTO_PL_KEY)
+    if raw and raw.startswith(_today_utc() + ":"):
+        try:
+            return float(raw.split(":", 1)[1])
+        except ValueError:
+            return 0.0
+    return 0.0
+
+
+def crypto_loss_streak() -> int:
+    try:
+        return int(get_state(CRYPTO_STREAK_KEY) or 0)
+    except ValueError:
+        return 0
+
+
+def crypto_record_result(pnl: float) -> int:
+    """Registra el resultado de un cierre cripto. Devuelve la racha actual de pérdidas."""
+    set_state(CRYPTO_PL_KEY, f"{_today_utc()}:{crypto_pl_today() + pnl:.2f}")
+    streak = crypto_loss_streak() + 1 if pnl < 0 else 0
+    set_state(CRYPTO_STREAK_KEY, str(streak))
+    return streak
+
+
+def crypto_halt(reason: str, until_tomorrow: bool):
+    set_state(CRYPTO_HALT_KEY, (f"day:{_today_utc()}|" if until_tomorrow else "manual|") + reason)
+
+
+def crypto_halt_reason():
+    """Motivo por el que la cripto está frenada, o None si puede operar."""
+    raw = get_state(CRYPTO_HALT_KEY)
+    if not raw or "|" not in raw:
+        return None
+    kind, reason = raw.split("|", 1)
+    if kind.startswith("day:") and kind[4:] != _today_utc():
+        return None   # el freno diario venció
+    return reason
+
+
+def crypto_resume():
+    """Reactiva la cripto a mano y reinicia la racha."""
+    delete_state(CRYPTO_HALT_KEY)
+    set_state(CRYPTO_STREAK_KEY, "0")
+
+
+def crypto_buy_blocked(symbol: str, equity: float, crypto_value: float, new_value: float):
+    """
+    Devuelve el motivo por el que NO conviene comprar ahora, o None si se puede.
+    Solo frena compras nuevas: las ventas y los stops nunca se bloquean.
+    """
+    halted = crypto_halt_reason()
+    if halted:
+        return f"cripto frenada: {halted}"
+    cap = Config.CRYPTO_MAX_TRADES_PER_DAY
+    if cap > 0 and crypto_buys_today() >= cap:
+        return f"ya se hicieron {cap} compras cripto hoy (CRYPTO_MAX_TRADES_PER_DAY)"
+
+    raw = get_state(CRYPTO_CLOSE_PREFIX + norm_symbol(symbol))
+    if raw and Config.CRYPTO_COOLDOWN_MINUTES > 0:
+        try:
+            elapsed = (datetime.now(timezone.utc) - datetime.fromisoformat(raw)).total_seconds() / 60
+            if elapsed < Config.CRYPTO_COOLDOWN_MINUTES:
+                return f"pausa tras el último cierre: faltan {Config.CRYPTO_COOLDOWN_MINUTES - elapsed:.0f} min (CRYPTO_COOLDOWN_MINUTES)"
+        except ValueError:
+            pass
+
+    limit = equity * Config.CRYPTO_MAX_EXPOSURE_PCT
+    if crypto_value + new_value > limit * 1.0001:
+        return (f"tope de cripto: tendrías ${crypto_value + new_value:,.0f} invertidos y el máximo es "
+                f"${limit:,.0f} ({Config.CRYPTO_MAX_EXPOSURE_PCT:.0%} del equity, CRYPTO_MAX_EXPOSURE_PCT)")
+    return None
 
 
 class RiskEngine:

@@ -37,6 +37,11 @@ def norm_symbol(symbol: str) -> str:
     return symbol.replace("/", "").upper()
 
 
+def timeframe_for(symbol: str) -> int:
+    """Minutos por vela para ese símbolo: la cripto puede usar velas más largas que las acciones."""
+    return Config.CRYPTO_TIMEFRAME_MINUTES if is_crypto(symbol) else Config.TIMEFRAME_MINUTES
+
+
 def _get_symbols(name: str, default: str) -> list:
     return [s.strip().upper() for s in os.getenv(name, default).split(",") if s.strip()]
 
@@ -59,10 +64,37 @@ class Config:
     MAX_CRYPTO_POSITIONS = _get_int("MAX_CRYPTO_POSITIONS", 2)
     # La cripto se mueve mucho más que las acciones: por defecto, posición más chica
     # y trailing stop más ancho (con 3% en velas de 15 min se dispararía todo el tiempo).
-    CRYPTO_MAX_POSITION_PCT = _get_float("CRYPTO_MAX_POSITION_PCT", 0.05)
+    CRYPTO_MAX_POSITION_PCT = _get_float("CRYPTO_MAX_POSITION_PCT", 0.03)
     CRYPTO_TRAILING_STOP_PCT = _get_float("CRYPTO_TRAILING_STOP_PCT", 0.05)
     # Comisión taker de Alpaca cripto (por lado). Solo la usa el backtest.
     CRYPTO_FEE_PCT = _get_float("CRYPTO_FEE_PCT", 0.0025)
+
+    # --- Ritmo conservador de la cripto ---
+    # El backtest mostró que con velas de 15 min la estrategia opera ~2 veces por día por par y las
+    # comisiones (0,25% por lado) se comen todo. Estos tres frenos bajan el ritmo y fijan un techo.
+    # Velas de la cripto (las acciones siguen con TIMEFRAME_MINUTES). Alpaca: 1-59 o múltiplos de 60.
+    # Backtest 180 días (BTC, ETH, SOL): 15 min = -8%, 60 min = -0,4% a -1,4%, 240 min = -0,1% a +0,5%.
+    CRYPTO_TIMEFRAME_MINUTES = _get_int("CRYPTO_TIMEFRAME_MINUTES", 240)
+    # Máximo de compras cripto nuevas por día (UTC), sumando todos los pares. 0 = sin límite.
+    CRYPTO_MAX_TRADES_PER_DAY = _get_int("CRYPTO_MAX_TRADES_PER_DAY", 2)
+    # Después de cerrar un par (por señal o por stop), no se vuelve a comprar ese par durante este tiempo.
+    CRYPTO_COOLDOWN_MINUTES = _get_int("CRYPTO_COOLDOWN_MINUTES", 240)
+    # Techo de plata total en cripto, como % del equity (suma de todas las posiciones cripto abiertas).
+    CRYPTO_MAX_EXPOSURE_PCT = _get_float("CRYPTO_MAX_EXPOSURE_PCT", 0.06)
+
+    # --- Stop trading de la cripto (interruptores automáticos) ---
+    # Pérdida cripto del día (cerrada + abierta) como % del equity: si se supera, cierra todo lo cripto
+    # y no compra más cripto hasta el día siguiente (UTC). 0 = desactivado.
+    CRYPTO_DAILY_LOSS_PCT = _get_float("CRYPTO_DAILY_LOSS_PCT", 0.015)
+    # Cierres seguidos en pérdida: al llegar a este número, la cripto queda frenada hasta que la reactives
+    # a mano (botón en la pestaña Control). 0 = desactivado.
+    CRYPTO_MAX_CONSECUTIVE_LOSSES = _get_int("CRYPTO_MAX_CONSECUTIVE_LOSSES", 3)
+
+    # --- Alarmas críticas (valen para acciones y cripto) ---
+    # Ciclos seguidos con error (ej. Alpaca caída): se avisa por Telegram y, al llegar al máximo, se activa el kill switch.
+    MAX_CYCLE_ERRORS = _get_int("MAX_CYCLE_ERRORS", 10)
+    # Caída del equity entre dos ciclos seguidos (~1 min) que se considera anormal: kill switch + alerta. 0 = desactivado.
+    SUDDEN_DROP_PCT = _get_float("SUDDEN_DROP_PCT", 0.05)
 
     # --- Timeframe de la estrategia ---
     TIMEFRAME_MINUTES = _get_int("TIMEFRAME_MINUTES", 15)
@@ -115,6 +147,9 @@ class Config:
         wrong = [s for s in cls.SYMBOLS if is_crypto(s)]
         if wrong:
             problems.append(f"Los pares cripto van en CRYPTO_SYMBOLS, no en SYMBOLS: {wrong}")
+        tf = cls.CRYPTO_TIMEFRAME_MINUTES
+        if not (1 <= tf <= 59 or tf == 1440 or (tf % 60 == 0 and tf // 60 <= 23)):
+            problems.append(f"CRYPTO_TIMEFRAME_MINUTES={tf} no es válido para Alpaca (usá 1-59, múltiplos de 60 hasta 1380, o 1440)")
         if not cls.DATABASE_URL:
             problems.append("Falta DATABASE_URL — conectá el plugin de Postgres a este servicio en Railway")
         return problems

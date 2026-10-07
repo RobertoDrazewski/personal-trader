@@ -46,7 +46,7 @@ def verdict(full: dict, first: dict, second: dict) -> str:
 
 def main():
     days_back = int(sys.argv[1]) if len(sys.argv) >= 2 else 180
-    minutes = int(sys.argv[2]) if len(sys.argv) >= 3 else Config.TIMEFRAME_MINUTES
+    minutes = int(sys.argv[2]) if len(sys.argv) >= 3 else Config.CRYPTO_TIMEFRAME_MINUTES
     pairs = [p.strip().upper() for p in sys.argv[3].split(",")] if len(sys.argv) >= 4 else DEFAULT_PAIRS
     lookback = Config.LOOKBACK_BARS
 
@@ -58,6 +58,7 @@ def main():
         print(f"(Aviso: no se pudo conectar a la base, los resultados no se van a guardar: {e})\n")
 
     run_ts = datetime.now(timezone.utc).isoformat()
+    print(f"Ritmo conservador: pausa {Config.CRYPTO_COOLDOWN_MINUTES} min tras cada cierre, máx. {Config.CRYPTO_MAX_TRADES_PER_DAY or 'sin límite'} compras/día por par, posición {Config.CRYPTO_MAX_POSITION_PCT:.0%}")
     print(f"\n{'='*78}\nBACKTEST CRIPTO — {days_back} días — velas {minutes} min — {len(pairs)} pares\n{'='*78}\n")
 
     rows = []

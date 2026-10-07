@@ -171,10 +171,28 @@ período. Si ningún par es consistente, no actives cripto todavía.
 Diferencias con las acciones:
 - Opera 24/7 (no espera a que abra el mercado).
 - Cupo propio (`MAX_CRYPTO_POSITIONS`, 2 por defecto) y posición más chica
-  (`CRYPTO_MAX_POSITION_PCT`, 5%), porque se mueve mucho más.
+  (`CRYPTO_MAX_POSITION_PCT`, 3%), porque se mueve mucho más.
 - Alpaca no ofrece trailing stop para cripto: lo vigila el agente cada
   `POLL_INTERVAL_SECONDS` (por defecto `CRYPTO_TRAILING_STOP_PCT`=5%) y vende a
   mercado si el precio cae ese porcentaje desde su pico. Sigue activo aunque el
   trading esté pausado o el kill switch encendido.
 - Comisión de Alpaca cripto (~0,25% por lado) incluida en el backtest.
 - Cantidades fraccionarias (0,0733 BTC), no enteras.
+
+**Ritmo conservador y stop trading (cripto)** — todo configurable por variables:
+
+| Variable | Por defecto | Qué hace |
+|---|---|---|
+| `CRYPTO_TIMEFRAME_MINUTES` | 240 | Velas de la cripto (4 h). Las acciones siguen con `TIMEFRAME_MINUTES`. Solo se decide con velas cerradas. |
+| `CRYPTO_MAX_TRADES_PER_DAY` | 2 | Máximo de compras cripto por día (UTC). 0 = sin límite. |
+| `CRYPTO_COOLDOWN_MINUTES` | 240 | Pausa para recomprar un par después de cerrarlo. |
+| `CRYPTO_MAX_EXPOSURE_PCT` | 0.06 | Techo de plata total en cripto (% del equity). |
+| `CRYPTO_DAILY_LOSS_PCT` | 0.015 | Si la pérdida cripto del día (cerrada + abierta) lo supera: cierra lo cripto y frena hasta mañana. |
+| `CRYPTO_MAX_CONSECUTIVE_LOSSES` | 3 | Cierres seguidos en pérdida que frenan la cripto hasta que la reactives (pestaña Control). |
+
+**Alarmas críticas (acciones y cripto):** el agente manda un 🚨 por Telegram y activa el
+kill switch si el equity cae `SUDDEN_DROP_PCT` (5%) entre dos ciclos, o si hay
+`MAX_CYCLE_ERRORS` (10) ciclos seguidos con error (ej. Alpaca caída). El kill switch frena
+las compras nuevas; los stops siguen vigilando lo que ya está abierto. Se desactiva a mano
+en el panel. Un agente caído del todo no puede avisar: para eso conviene la política de
+reinicio de Railway y revisar el panel.

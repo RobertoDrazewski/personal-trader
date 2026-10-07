@@ -12,13 +12,14 @@ from datetime import datetime, timezone
 
 import pandas as pd
 import psycopg2
+import psycopg2.errors
 import plotly.graph_objects as go
 import plotly.express as px
 import streamlit as st
 import streamlit.components.v1 as components
 from PIL import Image
 
-from config import Config, is_crypto, norm_symbol
+from config import Config, is_crypto, norm_symbol, timeframe_for
 from logger_db import init_db, get_state, set_state, delete_state, _dsn
 from broker_alpaca import AlpacaBroker
 from strategy import compute_signal
@@ -273,8 +274,14 @@ if APP_PASSWORD:
 # DATOS
 # =========================================================================
 def load_table(query: str) -> pd.DataFrame:
+    """Lee una tabla con tope de tiempo: si algo la tiene bloqueada (por ejemplo un backtest que está
+    guardando datos), esta consulta falla en unos segundos en vez de congelar todo el panel."""
     conn = psycopg2.connect(_dsn())
     try:
+        cur = conn.cursor()
+        cur.execute("SET statement_timeout = '20s'")
+        cur.execute("SET lock_timeout = '4s'")
+        conn.commit()
         return pd.read_sql_query(query, conn)
     finally:
         conn.close()
@@ -386,7 +393,7 @@ def scan_universe(symbols: tuple) -> list:
     out = []
     for sym in symbols:
         try:
-            df = get_broker().get_recent_bars(sym, Config.TIMEFRAME_MINUTES, Config.LOOKBACK_BARS)
+            df = get_broker().get_recent_bars(sym, timeframe_for(sym), Config.LOOKBACK_BARS)
             res = compute_signal(df)
             t, strong = classify(res["signal"], res)
             out.append({"symbol": sym, "signal": res["signal"], "tone": t, "strong": strong,
@@ -735,6 +742,15 @@ def mini_candle(df, bars=60):
 # ENCABEZADO, CUENTA Y BILLETERAS
 # =========================================================================
 kill_active = get_state("kill_switch") == "active"
+crypto_halt_txt = None
+try:
+    _h = get_state("crypto_halt") or ""
+    if "|" in _h:
+        _k, _r = _h.split("|", 1)
+        if not (_k.startswith("day:") and _k[4:] != datetime.now(timezone.utc).strftime("%Y-%m-%d")):
+            crypto_halt_txt = _r
+except Exception:
+    pass
 logo64 = logo_b64()
 logo_html = f'<img src="data:image/png;base64,{logo64}">' if logo64 else ""
 mode_pill = '<span class="pill y">PAPER · SIN DINERO REAL</span>' if Config.IS_PAPER else '<span class="pill r">LIVE · DINERO REAL</span>'
@@ -963,7 +979,7 @@ with tab_panel:
     # ---- Derecha: velas, RSI, screener ----
     with col_r:
         with st.container(key="pn_candles"):
-            st.markdown(f'<p class="pt"><span>Velas · SMA 10/30</span><span class="mn dim">{Config.TIMEFRAME_MINUTES} min</span></p>', unsafe_allow_html=True)
+            st.markdown(f'<p class="pt"><span>Velas · SMA 10/30</span><span class="mn dim">{Config.TIMEFRAME_MINUTES} min{f" · cripto {Config.CRYPTO_TIMEFRAME_MINUTES} min" if Config.CRYPTO_SYMBOLS else ""}</span></p>', unsafe_allow_html=True)
             # 2 acciones + 2 cripto; si falta alguna clase, se completa con la otra hasta 4 gráficos.
             chosen_syms = Config.SYMBOLS[:2] + Config.CRYPTO_SYMBOLS[:2]
             extra_syms = [s for s in Config.SYMBOLS + Config.CRYPTO_SYMBOLS if s not in chosen_syms]
@@ -973,7 +989,7 @@ with tab_panel:
                 cols = st.columns(2)
                 for c, sym in zip(cols, pair):
                     with c:
-                        df = fetch_bars(sym, Config.TIMEFRAME_MINUTES, max(Config.LOOKBACK_BARS, 100))
+                        df = fetch_bars(sym, timeframe_for(sym), max(Config.LOOKBACK_BARS, 100))
                         if df is None or df.empty:
                             st.markdown(f'<div class="dim" style="font-size:12px"><b>{sym}</b> sin datos</div>', unsafe_allow_html=True)
                             continue
@@ -988,7 +1004,7 @@ with tab_panel:
             rsi_options = Config.SYMBOLS + Config.CRYPTO_SYMBOLS
             if rsi_options:
                 rsym = st.selectbox("RSI de", rsi_options, key="rsi_sym", label_visibility="collapsed")
-                df = fetch_bars(rsym, Config.TIMEFRAME_MINUTES, max(Config.LOOKBACK_BARS, 100))
+                df = fetch_bars(rsym, timeframe_for(rsym), max(Config.LOOKBACK_BARS, 100))
                 if df is not None and not df.empty:
                     rs = rsi_series(df["close"]).tail(80)
                     st.markdown(f'<p class="pt"><span>RSI 14 · {rsym}</span><span class="mn y">{rs.iloc[-1]:.1f}</span></p>', unsafe_allow_html=True)
@@ -1040,7 +1056,7 @@ with tab_graficos:
     chosen = custom or picked
     if chosen:
         try:
-            df = get_broker().get_recent_bars(chosen, Config.TIMEFRAME_MINUTES, max(Config.LOOKBACK_BARS, 100))
+            df = get_broker().get_recent_bars(chosen, timeframe_for(chosen), max(Config.LOOKBACK_BARS, 100))
             if df is not None and not df.empty:
                 fig = go.Figure()
                 fig.add_trace(go.Candlestick(x=df.index, open=df["open"], high=df["high"], low=df["low"], close=df["close"], name=chosen,
@@ -1048,7 +1064,7 @@ with tab_graficos:
                 fig.add_trace(go.Scatter(x=df.index, y=sma(df["close"], 10), line=dict(color=B, width=1.3), name="SMA 10"))
                 fig.add_trace(go.Scatter(x=df.index, y=sma(df["close"], 30), line=dict(color=Y, width=1.3), name="SMA 30"))
                 style_fig(fig, 420, dict(l=5, r=5, t=30, b=10))
-                fig.update_layout(xaxis_rangeslider_visible=False, title=f"{chosen} — {Config.TIMEFRAME_MINUTES}min",
+                fig.update_layout(xaxis_rangeslider_visible=False, title=f"{chosen} — {timeframe_for(chosen)}min",
                                   legend=dict(orientation="h", y=1.08),
                                   yaxis=dict(gridcolor="rgba(255,255,255,.06)"), xaxis=dict(gridcolor="rgba(255,255,255,.04)"))
                 st.plotly_chart(fig, width="stretch")
@@ -1107,7 +1123,7 @@ with tab_screener:
         scan_results = []
         for i, sym in enumerate(candidate_symbols):
             try:
-                df = get_broker().get_recent_bars(sym, Config.TIMEFRAME_MINUTES, Config.LOOKBACK_BARS)
+                df = get_broker().get_recent_bars(sym, timeframe_for(sym), Config.LOOKBACK_BARS)
                 result = compute_signal(df)
                 result["symbol"] = sym
             except Exception as e:
@@ -1139,11 +1155,17 @@ with tab_screener:
 # ----------------------------- BACKTEST -----------------------------
 with tab_bt:
     st.subheader("Backtesting")
+    bt_error = False
     try:
         bt_results = load_table("SELECT * FROM backtest_results ORDER BY id DESC LIMIT 30")
-    except Exception:
+    except psycopg2.errors.UndefinedTable:
         bt_results = pd.DataFrame()
-    if not bt_results.empty:
+    except Exception:
+        bt_results, bt_error = pd.DataFrame(), True
+    if bt_error:
+        st.warning("No pude leer los resultados del backtest: la tabla está ocupada (tarda demasiado en responder). "
+                   "Suele pasar si hay un backtest guardando datos en este momento. Esperá a que termine y recargá.")
+    elif not bt_results.empty:
         st.dataframe(bt_results, width="stretch", hide_index=True)
         st.caption("buy_hold_pct = lo que habría dado comprar y mantener con el 100% del capital; "
                    "para comparar de igual a igual, multiplicalo por el % de posición (8% acciones, 5% cripto).")
@@ -1177,12 +1199,28 @@ with tab_glosario:
         ("RSI", "Mide 0-100 qué tan sobrecomprado/sobrevendido está un activo. >70 sobrecomprado, <30 sobrevendido."),
         ("Esfera de señales", "Cada nube de puntos es un símbolo. Verde = tendencia alcista o señal de compra, amarillo = sin dirección clara, rojo = tendencia bajista o señal de venta."),
         ("Trailing Stop", "Orden de venta que sube con el precio y nunca baja — protege ganancias. En acciones la ejecuta Alpaca; en cripto la vigila el agente cada minuto."),
+        ("Stop trading cripto", "Freno automático solo de la cripto: si la pérdida cripto del día supera CRYPTO_DAILY_LOSS_PCT del equity, cierra las posiciones cripto y no compra más hasta mañana; si hay CRYPTO_MAX_CONSECUTIVE_LOSSES cierres seguidos en pérdida, queda frenada hasta que la reactives en Control."),
+        ("Alarma crítica", "Aviso 🚨 por Telegram y en el log. Salta si el equity cae de golpe entre dos ciclos (SUDDEN_DROP_PCT) o si el agente acumula MAX_CYCLE_ERRORS ciclos seguidos con error: en ambos casos se activa el kill switch."),
+        ("Pausa tras cierre / tope diario", "Con CRYPTO_COOLDOWN_MINUTES no se recompra un par recién cerrado, y CRYPTO_MAX_TRADES_PER_DAY limita las compras cripto por día. CRYPTO_MAX_EXPOSURE_PCT es el techo de plata total en cripto."),
         ("Kill switch", "Interruptor de emergencia que frena todas las operaciones nuevas."),
         ("Paper trading", "Operar con dinero simulado, precios reales."),
         ("Cripto 24/7", "Los pares cripto (BTC/USD, ETH/USD...) cotizan todo el día, todos los días; las acciones solo con el mercado abierto."),
+        ("Par cripto (BTC/USD)", "Una criptomoneda cotizada en dólares: BTC/USD es cuántos dólares vale 1 bitcoin. En las órdenes y los datos se escribe con barra (BTC/USD); en las posiciones de Alpaca aparece sin barra (BTCUSD)."),
+        ("Qué es cada cripto", "BTC = Bitcoin · ETH = Ethereum · SOL = Solana · LTC = Litecoin · DOGE = Dogecoin · AVAX = Avalanche · LINK = Chainlink · BCH = Bitcoin Cash. Son los pares que compara el backtest cripto."),
+        ("CRYPTO_SYMBOLS", "Variable de Railway que activa la cripto. Va en el servicio del agente (para que opere) y también en el del dashboard (para que lo muestre). Si ves 'Cripto desactivada', está vacía en ese servicio."),
+        ("Cantidad fraccionaria", "En cripto se compran fracciones (por ejemplo 0,0123 BTC). En acciones el agente compra unidades enteras."),
+        ("Posición y cupo cripto", "Cada compra cripto usa hasta el 5% del equity (CRYPTO_MAX_POSITION_PCT) y hay un cupo propio de 2 posiciones (MAX_CRYPTO_POSITIONS), independiente del de acciones: una clase no deja sin lugar a la otra."),
+        ("Trailing stop de cripto", "Alpaca no ofrece trailing stop para cripto, así que lo hace el agente por software: guarda el precio máximo desde la compra y vende si el precio cae 5% (CRYPTO_TRAILING_STOP_PCT) desde ese pico. Se revisa en cada ciclo del agente, incluso con el kill switch activo; no es una orden puesta en el broker."),
+        ("Volatilidad", "Cuánto se mueve el precio. La cripto suele moverse mucho más que las acciones, por eso su posición es más chica y su stop más amplio."),
+        ("Comisión cripto", "Alpaca cobra una comisión por operar cripto (hasta 0,25% por operación en el nivel base; verificá la tarifa vigente en Alpaca). El backtest la descuenta (CRYPTO_FEE_PCT) para no mostrar ganancias que en la práctica no existirían."),
+        ("Orden GTC", "'Good 'til canceled': la orden queda vigente hasta ejecutarse o cancelarse. Las órdenes cripto usan GTC (no admiten DAY, que vence al cierre del día como en las acciones)."),
+        ("Backtest cripto: veredicto", "Consistente = al menos 15 operaciones, ganancia en las dos mitades del período y mejor resultado que comprar y mantener. Irregular = no cumple alguna de esas condiciones. Pocos trades = muy pocas operaciones para sacar conclusiones."),
+        ("Primera y segunda mitad", "El backtest cripto parte el período en dos. Si una estrategia solo gana en una de las mitades, probablemente fue suerte y no una ventaja real."),
+        ("In-sample", "Resultados medidos sobre los mismos datos con los que se eligió la estrategia. Tienden a verse mejor que lo que pasará después: el pasado no garantiza el futuro. Por eso conviene probar varios días en paper antes de confiar."),
+        ("◆ En cartera (asteroide)", "Los símbolos marcados con ◆ son los que tenés abiertos. Al tocar un punto de cualquier símbolo se abre su ficha con la señal, el precio, el RSI y, si lo tenés, tu posición y su P&L."),
         ("Win rate", "% de operaciones cerradas en ganancia."),
         ("Timeframe", "Tamaño de cada vela de precio — no es el horario de mercado."),
-        ("Buy & Hold", "Comprar y no vender nunca — referencia para medir si una estrategia activa vale la pena."),
+        ("Buy & Hold", "Comprar y no vender nunca — referencia para medir si una estrategia activa vale la pena. En el backtest cripto se compara con la misma exposición que usa la estrategia (columna B&H*)."),
         ("ADR", "Certificado de acción extranjera cotizando en dólares en EEUU."),
         ("ETF", "Fondo que agrupa muchos activos en un solo papel (ej. SPY = S&P 500)."),
     ]
@@ -1203,9 +1241,23 @@ with tab_control:
             delete_state("kill_switch")
             st.rerun()
     st.caption(f"Acciones: {', '.join(Config.SYMBOLS) or '—'} · Cripto: {', '.join(Config.CRYPTO_SYMBOLS) or 'desactivada'}")
+    if Config.CRYPTO_SYMBOLS:
+        if crypto_halt_txt:
+            st.warning(f"Cripto frenada: {crypto_halt_txt}")
+            if st.button("Reactivar cripto"):
+                delete_state("crypto_halt")
+                set_state("crypto_loss_streak", "0")
+                st.rerun()
+        else:
+            st.caption(f"Cripto operando · se frena sola con pérdida del día > {Config.CRYPTO_DAILY_LOSS_PCT:.1%} del equity "
+                       f"o {Config.CRYPTO_MAX_CONSECUTIVE_LOSSES} cierres seguidos en pérdida.")
     st.divider()
     st.subheader("Log de eventos")
-    events_df = load_table("SELECT ts, level, message FROM events ORDER BY id DESC LIMIT 100")
+    try:
+        events_df = load_table("SELECT ts, level, message FROM events ORDER BY id DESC LIMIT 100")
+    except Exception:
+        events_df = pd.DataFrame()
+        st.warning("No pude leer el log de eventos ahora mismo. Recargá en unos segundos.")
     if not events_df.empty:
         st.dataframe(events_df, width="stretch", hide_index=True)
     else:

@@ -24,7 +24,14 @@ from logger_db import log_event, log_order
 
 
 def _timeframe(minutes: int):
-    return TimeFrame(minutes, TimeFrameUnit.Minute) if minutes != 1440 else TimeFrame.Day
+    """Alpaca solo acepta 1-59 con unidad Minuto: de 60 en adelante hay que pedir Horas (60 -> 1Hour, 240 -> 4Hour)."""
+    if minutes == 1440:
+        return TimeFrame.Day
+    if minutes < 60:
+        return TimeFrame(minutes, TimeFrameUnit.Minute)
+    if minutes % 60 == 0 and minutes // 60 <= 23:
+        return TimeFrame(minutes // 60, TimeFrameUnit.Hour)
+    raise ValueError(f"Timeframe no soportado: {minutes} min (usá 1-59, múltiplos de 60 hasta 1380, o 1440)")
 
 
 class AlpacaBroker:
@@ -53,6 +60,14 @@ class AlpacaBroker:
         asset_class = getattr(position, "asset_class", None)
         value = getattr(asset_class, "value", asset_class)
         return str(value).lower() == "crypto"
+
+    def get_position_pl(self, symbol: str):
+        """P&L no realizado (USD) de una posición abierta, o None si no se pudo leer."""
+        try:
+            pos = self.trading_client.get_open_position(norm_symbol(symbol) if is_crypto(symbol) else symbol)
+            return float(pos.unrealized_pl)
+        except Exception:
+            return None
 
     def get_open_positions_count(self) -> int:
         return len(self.get_open_positions())
