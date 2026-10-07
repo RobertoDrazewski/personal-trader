@@ -76,10 +76,16 @@ details.ln-card[open] summary::after {content: "\\2212";}
 .ln-rule b {display: block; font: 700 20px 'JetBrains Mono', monospace; color: #F5C84B;}
 .ln-rule span {font-size: 12px; color: #9FB4D6;}
 .ln-cols {display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 14px; margin-top: 10px;}
+.ln-cols.f4 {grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));}
 .ln-col {padding: 16px 18px; border-radius: 14px; background: rgba(9,15,29,.74); border: 1px solid rgba(120,170,255,.18);}
 .ln-col > b {font: 700 16px 'Chakra Petch', sans-serif; color: #EAF1FB; display: block; margin-bottom: 6px;}
 .ln-col p b {color: #EAF1FB;}
 .ln-col p {margin: 0; color: #A9B8D0; font-size: 14px; line-height: 1.55;}
+.ln-table {width: 100%; border-collapse: collapse; margin-top: 8px; font: 500 13px 'JetBrains Mono', monospace;}
+.ln-table th {text-align: left; font: 600 10px 'Chakra Petch', sans-serif; letter-spacing: .14em; color: #7F93B4; text-transform: uppercase; padding: 6px 10px; border-bottom: 1px solid rgba(120,170,255,.2);}
+.ln-table td {padding: 7px 10px; color: #CFE0F5; border-bottom: 1px solid rgba(120,170,255,.08);}
+.ln-table td.g {color: #3EE89A;} .ln-table td.r {color: #FF5F6D;}
+.ln-sub {font: 600 11px 'Chakra Petch', sans-serif; letter-spacing: .16em; color: #9FB4D6; text-transform: uppercase; margin: 6px 0 2px;}
 .ln-note {margin-top: 12px; font-size: 12px; color: #7F93B4; line-height: 1.5; max-width: 760px;}
 .ln-foot {text-align: center; margin: 34px 0 6px; font: 500 10px 'Chakra Petch', sans-serif; letter-spacing: .22em; color: #5E7194;}
 .ln-foot img {height: 36px; width: auto; display: block; margin: 0 auto 8px; opacity: .85;}
@@ -235,7 +241,87 @@ def _fmt1(x: float, sign: bool = False) -> str:
     return (f"{x:+.1f}" if sign else f"{x:.1f}").replace(".", ",")
 
 
-def render_landing(img_b64, equity_df, sigs, positions, asteroid_fn, style_fig, on_enter, fetch_bars=None, admin_login=None, admin_enabled=False):
+
+def _stock_signal_chart(df: pd.DataFrame, style_fig):
+    """Velas + SMA 10/30 de una acción real, con los cruces marcados (así se ve una señal).
+    El eje X es la posición de cada vela (no la hora) para que las noches y fines de semana no dejen huecos."""
+    df = df.dropna(subset=["open", "high", "low", "close"]).copy()
+    if len(df) < 40:
+        return None
+    df["f"] = df["close"].rolling(10).mean()
+    df["sl"] = df["close"].rolling(30).mean()
+    diff = df["f"] - df["sl"]
+    up = ((diff > 0) & (diff.shift() <= 0)).tail(100).to_numpy()
+    dn = ((diff < 0) & (diff.shift() >= 0)).tail(100).to_numpy()
+    df = df.tail(100)
+    x = list(range(len(df)))
+    labels = [t.strftime("%d/%m %H:%M") for t in df.index]
+    fig = go.Figure()
+    fig.add_trace(go.Candlestick(x=x, open=df["open"], high=df["high"], low=df["low"], close=df["close"],
+                                 increasing_line_color=G, decreasing_line_color=R, increasing_fillcolor=G, decreasing_fillcolor=R,
+                                 name="Precio", showlegend=False, hoverinfo="skip"))
+    fig.add_trace(go.Scatter(x=x, y=df["f"], mode="lines", line=dict(color=Y, width=1.8), name="Promedio rápido (10)", hoverinfo="skip"))
+    fig.add_trace(go.Scatter(x=x, y=df["sl"], mode="lines", line=dict(color=B, width=1.8), name="Promedio lento (30)", hoverinfo="skip"))
+    xs_up = [i for i, v in zip(x, up) if v]
+    xs_dn = [i for i, v in zip(x, dn) if v]
+    if xs_up:
+        fig.add_trace(go.Scatter(x=xs_up, y=[df["low"].iloc[i] * 0.9995 for i in xs_up], mode="markers", name="Cruce al alza", hoverinfo="skip",
+                                 marker=dict(symbol="triangle-up", size=12, color=G, line=dict(color="#04060D", width=1))))
+    if xs_dn:
+        fig.add_trace(go.Scatter(x=xs_dn, y=[df["high"].iloc[i] * 1.0005 for i in xs_dn], mode="markers", name="Cruce a la baja", hoverinfo="skip",
+                                 marker=dict(symbol="triangle-down", size=12, color=R, line=dict(color="#04060D", width=1))))
+    lo, hi = float(df["low"].min()), float(df["high"].max())
+    pad = (hi - lo) * 0.08
+    step = max(1, len(x) // 5)
+    fig.update_yaxes(range=[lo - pad, hi + pad], gridcolor="rgba(120,170,255,.08)", tickprefix="$")
+    fig.update_xaxes(gridcolor="rgba(120,170,255,.05)", rangeslider_visible=False,
+                     tickmode="array", tickvals=x[::step], ticktext=labels[::step])
+    fig.update_layout(dragmode=False, legend=dict(orientation="h", y=1.12, x=0, font=dict(size=10)))
+    return style_fig(fig, 330, margin=dict(l=0, r=0, t=30, b=6))
+
+
+def _daily_move(df: pd.DataFrame):
+    """Movimiento diario promedio (valor absoluto, en %) calculado con los cierres diarios."""
+    if df is None or df.empty:
+        return None
+    d = df["close"].resample("1D").last().dropna().pct_change().abs().dropna() * 100
+    return float(d.mean()) if len(d) >= 2 else None
+
+
+def _vol_chart(vals: dict, style_fig):
+    names = list(vals.keys())
+    colors = [R if "/" in n else B for n in names]
+    fig = go.Figure(go.Bar(x=names, y=[vals[n] for n in names], marker_color=colors,
+                           text=[f"{vals[n]:.1f}%".replace(".", ",") for n in names], textposition="outside",
+                           hovertemplate="%{x}: %{y:.2f}% por día<extra></extra>"))
+    fig.update_yaxes(gridcolor="rgba(120,170,255,.08)", ticksuffix="%", range=[0, max(vals.values()) * 1.25])
+    fig.update_layout(dragmode=False)
+    return style_fig(fig, 330, margin=dict(l=0, r=0, t=24, b=6))
+
+
+def _bt_table(bt_df: pd.DataFrame):
+    """Resultados de backtest de acciones guardados por el agente (última corrida de cada símbolo)."""
+    if bt_df is None or bt_df.empty or "symbol" not in bt_df:
+        return None
+    d = bt_df[~bt_df["symbol"].astype(str).str.contains("/")].drop_duplicates("symbol").dropna(subset=["total_return_pct"]).copy()
+    if d.empty:
+        return None
+    d = d.sort_values("total_return_pct", ascending=False)
+    avg = float(d["total_return_pct"].mean()) * 100
+    rows = ""
+    for _, r in d.head(6).iterrows():
+        ret = float(r["total_return_pct"]) * 100
+        bh = r.get("buy_hold_pct")
+        bh_txt = "—" if pd.isna(bh) else _fmt1(float(bh) * Config.MAX_POSITION_PCT * 100, True) + "%"
+        wr = r.get("win_rate")
+        rows += (f'<tr><td>{r["symbol"]}</td><td class="{"g" if ret >= 0 else "r"}">{_fmt1(ret, True)}%</td><td>{bh_txt}</td>'
+                 f'<td>{int(r["num_trades"])}</td><td>{"—" if pd.isna(wr) else f"{float(wr) * 100:.0f}%"}</td></tr>')
+    html = ('<table class="ln-table"><tr><th>Símbolo</th><th>Retorno</th><th>Comprar y mantener*</th><th>Operaciones</th><th>Aciertos</th></tr>'
+            + rows + '</table>')
+    return html, avg, len(d)
+
+
+def render_landing(img_b64, equity_df, sigs, positions, asteroid_fn, style_fig, on_enter, fetch_bars=None, admin_login=None, admin_enabled=False, bt_df=None):
     """Dibuja la portada pública. `on_enter` se llama al tocar los botones que llevan al panel completo."""
     st.markdown(LANDING_CSS, unsafe_allow_html=True)
 
@@ -334,6 +420,68 @@ def render_landing(img_b64, equity_df, sigs, positions, asteroid_fn, style_fig, 
                 '<p class="ln-p">Tocá cada imagen para abrirla.</p>'
                 f'<div class="ln-grid">{cards}</div>', unsafe_allow_html=True)
 
+    # ---- La bolsa ----
+    st_pos = [p for p in positions if p["kind"] == "stock"]
+    inv = sum(p["market_value"] for p in st_pos)
+    upl = sum(p["unrealized_pl"] for p in st_pos)
+    upl_pct = upl / (inv - upl) * 100 if (inv - upl) else 0.0
+    ucol = G if upl >= 0 else R
+    st.markdown(
+        '<div class="ln-h">La bolsa</div><div class="ln-h2">El terreno principal del agente</div>'
+        '<p class="ln-p">Las acciones son donde el agente pasa la mayor parte del tiempo. Operar no tiene comisión, el mercado tiene horario y reglas claras '
+        'y los precios se mueven de forma más moderada que en cripto. Eso le da más margen para que una estrategia simple se pueda probar y medir. '
+        'Acá van los datos reales; no hace falta creerle a nadie.</p>'
+        '<div class="ln-stats">'
+        f'<div class="ln-stat"><div class="k">Acciones en cartera</div><div class="v">{len(st_pos)}/{Config.MAX_OPEN_POSITIONS}</div><div class="s">posiciones abiertas</div></div>'
+        f'<div class="ln-stat"><div class="k">Invertido</div><div class="v">{_money(inv)}</div><div class="s">dinero simulado</div></div>'
+        f'<div class="ln-stat"><div class="k">Resultado abierto</div><div class="v" style="color:{ucol}">{"+" if upl >= 0 else "-"}{_money(abs(upl))}</div>'
+        f'<div class="s">{_fmt1(upl_pct, True)}% sobre lo invertido</div></div>'
+        '<div class="ln-stat"><div class="k">Comisión por operar</div><div class="v">$0</div><div class="s">solo tasas regulatorias en ventas</div></div>'
+        '</div>', unsafe_allow_html=True)
+
+    if fetch_bars:
+        held_syms = [p["symbol"] for p in st_pos]
+        cand = [x["symbol"] for x in sigs if "/" not in x["symbol"] and x["tone"] == "g"]
+        sym = (held_syms or cand or ["AAPL"])[0]
+        try:
+            fig_s = _stock_signal_chart(fetch_bars(sym, Config.TIMEFRAME_MINUTES, 140), style_fig)
+        except Exception:
+            fig_s = None
+        vols = {}
+        for name in ("SPY", "AAPL", "BTC/USD", "ETH/USD"):
+            try:
+                v = _daily_move(fetch_bars(name, 60, 168))
+            except Exception:
+                v = None
+            if v is not None:
+                vols[name] = v
+        fig_v = _vol_chart(vols, style_fig) if len(vols) >= 2 else None
+        if fig_s is not None or fig_v is not None:
+            cl, cr = st.columns([1.35, 1], gap="large")
+            with cl:
+                if fig_s is not None:
+                    st.markdown(f'<div class="ln-sub">Una señal real · {sym}</div>', unsafe_allow_html=True)
+                    st.plotly_chart(fig_s, width="stretch", config={"displayModeBar": False})
+                    st.caption("Velas de 15 minutos con los dos promedios. Cuando el rápido (amarillo) cruza hacia arriba al lento (azul) aparece ▲ y el agente evalúa comprar; "
+                               "si cruza hacia abajo aparece ▼.")
+            with cr:
+                if fig_v is not None:
+                    st.markdown('<div class="ln-sub">Cuánto se mueve cada uno por día</div>', unsafe_allow_html=True)
+                    st.plotly_chart(fig_v, width="stretch", config={"displayModeBar": False})
+                    st.caption("Movimiento diario promedio (sin importar si sube o baja), con datos reales recientes. "
+                               "Las barras rojas son cripto: se mueve mucho más, por eso se trata con más cuidado.")
+
+    bt = _bt_table(bt_df)
+    if bt:
+        tabla, avg, n = bt
+        st.markdown(
+            '<div class="ln-sub" style="margin-top:14px">Pruebas históricas en acciones (backtest)</div>'
+            f'{tabla}'
+            f'<div class="ln-note">Promedio de {n} acciones probadas: <b>{_fmt1(avg, True)}%</b> sobre el capital de prueba. '
+            f'*Comprar y mantener se muestra ajustado a la misma exposición del agente ({_pct(Config.MAX_POSITION_PCT, 0)} por posición). '
+            'Son pruebas sobre datos del pasado con los mismos parámetros que se eligieron, así que tienden a verse mejor que lo que pasará después. '
+            'Por eso todavía es una demostración.</div>', unsafe_allow_html=True)
+
     # ---- Cripto conservadora ----
     tf_h = Config.CRYPTO_TIMEFRAME_MINUTES / 60
     tf_txt = f"{tf_h:g}".replace(".", ",") + " h" if Config.CRYPTO_TIMEFRAME_MINUTES >= 60 else f"{Config.CRYPTO_TIMEFRAME_MINUTES} min"
@@ -392,6 +540,70 @@ def render_landing(img_b64, equity_df, sigs, positions, asteroid_fn, style_fig, 
                 f'<div class="ln-note">Bitcoin {verbo} y se mueve con fuerza de un día para otro. Por eso el agente usa velas lentas, '
                 'posiciones chicas y un freno automático. Datos reales de los últimos días, velas de 1 hora.</div>',
                 unsafe_allow_html=True)
+
+    # ---- Comisiones y costos ----
+    fee, slip = Config.CRYPTO_FEE_PCT, Config.CRYPTO_SLIPPAGE_PCT
+    rt = 2 * (fee + slip)
+    pos_c = cuenta * Config.CRYPTO_MAX_POSITION_PCT
+    fee_usd, slip_usd = pos_c * fee * 2, pos_c * slip * 2
+    bar_w = 170
+    fee_w, slip_w = bar_w * (2 * fee) / rt, bar_w * (2 * slip) / rt
+    svg_costos = _svg(
+        f'<text x="14" y="30" fill="{DIM}" font-size="10" font-family="monospace">ACCIONES</text>'
+        f'<rect x="14" y="36" width="4" height="14" rx="2" fill="{G}"/>'
+        f'<text x="26" y="48" fill="{G}" font-size="12" font-weight="700" font-family="monospace">$0 de comisión</text>'
+        f'<text x="14" y="82" fill="{DIM}" font-size="10" font-family="monospace">CRIPTO · IDA Y VUELTA</text>'
+        f'<rect x="14" y="88" width="{fee_w:.0f}" height="16" fill="{Y}"/>'
+        f'<rect x="{14 + fee_w:.0f}" y="88" width="{slip_w:.0f}" height="16" fill="{B}"/>'
+        f'<text x="{14 + bar_w + 8}" y="101" fill="#EAF1FB" font-size="12" font-weight="700" font-family="monospace">{_pct(rt, 1)}</text>')
+    costo_card = _card(
+        "COSTOS", "Lo que cuesta operar", "Tocá para ver un ejemplo", svg_costos,
+        f'<p><b>Acciones:</b> Alpaca no cobra comisión por operar. Solo hay tasas regulatorias mínimas (SEC y FINRA) y únicamente en las ventas.</p>'
+        f'<p><b>Cripto:</b> {_pct(fee, 2)} por lado en la tarifa base de Alpaca para órdenes a mercado (baja con el volumen operado), '
+        f'más un deslizamiento estimado de {_pct(slip, 2)}: la diferencia entre el precio que se ve y el que realmente se ejecuta.</p>'
+        f'<div class="ex"><i>EJEMPLO ILUSTRATIVO</i>Comprar y vender {_money(pos_c)} en cripto ({_pct(Config.CRYPTO_MAX_POSITION_PCT, 0)} de una cuenta de {_money(cuenta)}): '
+        f'comisiones ≈ {_money(fee_usd)} y deslizamiento ≈ {_money(slip_usd)}, en total ≈ <b>{_money(fee_usd + slip_usd)}</b> ({_pct(rt, 1)} de la posición). '
+        f'El precio tiene que moverse al menos {_pct(rt, 1)} a favor solo para quedar a mano.</div>')
+    st.markdown(
+        '<div class="ln-h">Comisiones</div><div class="ln-h2">Cada operación tiene un costo, y el agente lo tiene en cuenta</div>'
+        '<p class="ln-p">Una estrategia puede acertar seguido y aun así perder plata si los costos se comen cada ganancia. '
+        'Por eso las comisiones no son un detalle: son parte de la decisión.</p>'
+        '<div class="ln-stats">'
+        '<div class="ln-stat"><div class="k">Acciones</div><div class="v">$0</div><div class="s">de comisión por operar</div></div>'
+        f'<div class="ln-stat"><div class="k">Cripto</div><div class="v">{_pct(fee, 2)}</div><div class="s">por lado, tarifa base</div></div>'
+        f'<div class="ln-stat"><div class="k">Cripto, ida y vuelta</div><div class="v">≈ {_pct(rt, 1)}</div><div class="s">con deslizamiento estimado</div></div>'
+        '</div>', unsafe_allow_html=True)
+    cc, cd = st.columns([1, 1.35], gap="large")
+    with cc:
+        st.markdown(f'<div class="ln-grid" style="grid-template-columns:1fr">{costo_card}</div>', unsafe_allow_html=True)
+    with cd:
+        st.markdown(
+            '<div class="ln-body" style="padding:0">'
+            '<p><b>Cómo lo manejamos</b></p>'
+            '<p>• Todas las pruebas históricas (backtest) descuentan comisión y deslizamiento. Sin descontar los costos, cualquier resultado se ve mejor de lo que sería en la realidad.</p>'
+            '<p>• Los frenos automáticos del agente cuentan la comisión estimada: una pérdida con costos incluidos se ve completa, no recortada.</p>'
+            '<p>• Para no regalar plata en comisiones, la cripto usa velas lentas, una pausa después de cada cierre y un máximo de compras por día. '
+            'En las pruebas, con velas de 15 minutos las comisiones se comían todo el resultado.</p>'
+            '<div class="ex"><i>HONESTIDAD</i>Las cifras de cripto son estimaciones del costo real, calculadas con la tarifa base publicada por Alpaca. '
+            'Qué se descuenta exactamente en una cuenta de prueba (paper) puede diferir.</div></div>',
+            unsafe_allow_html=True)
+
+    # ---- Por qué un agente ----
+    st.markdown(
+        '<div class="ln-h">Por qué un agente</div><div class="ln-h2">Lo que una persona no puede hacer sola</div>'
+        '<div class="ln-cols f4">'
+        f'<div class="ln-col"><b>Vigila todo a la vez</b><p>Mira {n_acc} acciones y {n_cry} criptomonedas cada minuto. '
+        'La cripto no cierra nunca; un agente no necesita dormir.</p></div>'
+        '<div class="ln-col"><b>Sin emociones</b><p>No se entusiasma con una subida ni se asusta con una caída. '
+        'Aplica las mismas reglas todos los días, también cuando duele.</p></div>'
+        '<div class="ln-col"><b>Límites que no se negocian</b><p>Los topes de riesgo, los stops y el kill switch están en el código. '
+        'No dependen del ánimo de nadie ni de una excepción de último momento.</p></div>'
+        '<div class="ln-col"><b>Todo queda registrado</b><p>Cada señal, orden y resultado se guarda con su motivo. '
+        'Eso permite medir qué funciona, descartar lo que no y mejorar.</p></div>'
+        '</div>'
+        '<div class="ln-note">Un agente no garantiza ganar: ejecuta una estrategia con disciplina. Su valor está en hacerlo sin emociones, '
+        'dejarlo todo medido y poder mejorarlo con datos. Si la estrategia no sirve, el agente lo va a mostrar con números.</div>',
+        unsafe_allow_html=True)
 
     # ---- Qué es / qué no es ----
     st.markdown(

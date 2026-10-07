@@ -710,8 +710,13 @@ if st.session_state["view"] == "landing":
     except Exception:
         pass
     _pos, _ = fetch_positions()
+    _bt = pd.DataFrame()
+    try:
+        _bt = load_table("SELECT * FROM backtest_results ORDER BY id DESC LIMIT 300")
+    except Exception:
+        pass
     render_landing(
-        img_b64=img_b64, equity_df=_eq, sigs=latest_signals(), positions=_pos,
+        bt_df=_bt, img_b64=img_b64, equity_df=_eq, sigs=latest_signals(), positions=_pos,
         asteroid_fn=asteroid, style_fig=style_fig, on_enter=go_panel, fetch_bars=fetch_bars,
         admin_login=admin_login, admin_enabled=bool(ADMIN_PASSWORD),
     )
