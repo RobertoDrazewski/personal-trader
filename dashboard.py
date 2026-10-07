@@ -702,7 +702,7 @@ if st.session_state["view"] == "landing":
     _pos, _ = fetch_positions()
     render_landing(
         img_b64=img_b64, equity_df=_eq, sigs=latest_signals(), positions=_pos,
-        asteroid_fn=asteroid, style_fig=style_fig, on_enter=go_panel,
+        asteroid_fn=asteroid, style_fig=style_fig, on_enter=go_panel, fetch_bars=fetch_bars,
     )
     st.stop()
 

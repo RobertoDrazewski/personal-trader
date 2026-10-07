@@ -71,7 +71,7 @@ details.ln-card[open] summary::after {content: "\\2212";}
 .ln-body p {margin: 8px 0;}
 .ln-body .ex {margin-top: 10px; padding: 10px 12px; border-radius: 8px; background: rgba(79,209,232,.07); border-left: 3px solid #4FD1E8; color: #CFE3F5;}
 .ln-body .ex i {font-style: normal; font: 600 10px 'Chakra Petch', sans-serif; letter-spacing: .14em; color: #4FD1E8; display: block; margin-bottom: 3px;}
-.ln-rules {display: grid; grid-template-columns: repeat(auto-fit, minmax(270px, 1fr)); gap: 10px; margin: 14px 0 8px;}
+.ln-rules {display: grid; grid-template-columns: repeat(auto-fit, minmax(min(270px, 46%), 1fr)); gap: 10px; margin: 14px 0 8px;}
 .ln-rule {padding: 11px 14px; border-radius: 10px; background: rgba(9,15,29,.74); border: 1px solid rgba(245,200,75,.22);}
 .ln-rule b {display: block; font: 700 20px 'JetBrains Mono', monospace; color: #F5C84B;}
 .ln-rule span {font-size: 12px; color: #9FB4D6;}
@@ -201,7 +201,36 @@ def _equity_chart(equity_df: pd.DataFrame, style_fig):
     return style_fig(fig, 260, margin=dict(l=0, r=0, t=6, b=6))
 
 
-def render_landing(img_b64, equity_df, sigs, positions, asteroid_fn, style_fig, on_enter):
+def _btc_block(df: pd.DataFrame, style_fig):
+    """Velas de 1 h de BTC/USD de los últimos días + números de volatilidad (todo calculado de los datos reales)."""
+    df = df.dropna(subset=["open", "high", "low", "close"])
+    if len(df) < 24:
+        return None
+    first, last = float(df["close"].iloc[0]), float(df["close"].iloc[-1])
+    chg = (last / first - 1) * 100
+    rng = (float(df["high"].max()) - float(df["low"].min())) / first * 100
+    daily = df["close"].resample("1D").last().pct_change().dropna() * 100
+    worst = float(daily.min()) if len(daily) else 0.0
+    best = float(daily.max()) if len(daily) else 0.0
+    days = max(1, round((df.index[-1] - df.index[0]).total_seconds() / 86400))
+    fig = go.Figure(go.Candlestick(
+        x=df.index, open=df["open"], high=df["high"], low=df["low"], close=df["close"],
+        increasing_line_color=G, decreasing_line_color=R, increasing_fillcolor=G, decreasing_fillcolor=R,
+        hovertemplate="%{x|%d/%m %H:%M}<br>cierre $%{close:,.0f}<extra></extra>",
+    ))
+    fig.add_hline(y=first, line=dict(color=Y, width=1, dash="dash"))
+    fig.update_yaxes(gridcolor="rgba(120,170,255,.08)", tickprefix="$", tickformat=",.0f")
+    fig.update_xaxes(gridcolor="rgba(120,170,255,.05)", rangeslider_visible=False)
+    fig.update_layout(dragmode=False)
+    return dict(fig=style_fig(fig, 300, margin=dict(l=0, r=0, t=6, b=6)), first=first, last=last, chg=chg, rng=rng,
+                worst=worst, best=best, days=days)
+
+
+def _fmt1(x: float, sign: bool = False) -> str:
+    return (f"{x:+.1f}" if sign else f"{x:.1f}").replace(".", ",")
+
+
+def render_landing(img_b64, equity_df, sigs, positions, asteroid_fn, style_fig, on_enter, fetch_bars=None):
     """Dibuja la portada pública. `on_enter` se llama al tocar los botones que llevan al panel completo."""
     st.markdown(LANDING_CSS, unsafe_allow_html=True)
 
@@ -323,7 +352,40 @@ def render_landing(img_b64, equity_df, sigs, positions, asteroid_fn, style_fig, 
         '<div class="ex"><i>PARA TENER EN CUENTA</i>En las pruebas históricas esta estrategia no mostró una ventaja clara en cripto. '
         'Por eso opera poco y por eso está en modo demostración: primero se mide, después se confía.</div>')
     st.markdown('<div class="ln-h">Cripto</div><div class="ln-h2">Poco, lento y con techo</div>'
-                f'<div class="ln-rules">{rules_html}</div><div class="ln-grid" style="grid-template-columns:minmax(235px,420px)">{cripto_card}</div>',
+                f'<div class="ln-rules">{rules_html}</div>', unsafe_allow_html=True)
+    btc = None
+    if fetch_bars:
+        try:
+            _df = fetch_bars("BTC/USD", 60, 168)
+            btc = _btc_block(_df, style_fig) if _df is not None else None
+        except Exception:
+            btc = None
+    card_html = f'<div class="ln-grid" style="grid-template-columns:1fr">{cripto_card}</div>'
+    if btc is None:
+        st.markdown(card_html.replace("1fr", "minmax(235px,420px)"), unsafe_allow_html=True)
+    else:
+        col_c, col_g = st.columns([1, 1.35], gap="large")
+        with col_c:
+            st.markdown(card_html, unsafe_allow_html=True)
+        with col_g:
+            col = G if btc["chg"] >= 0 else R
+            verbo = "sube" if btc["chg"] >= 0 else "cae"
+            st.markdown(
+                f'<div class="ln-h" style="margin:0 0 4px">Bitcoin · últimos {btc["days"]} días</div>'
+                f'<div class="ln-h2" style="font-size:22px">BTC/USD {_money(btc["last"])} '
+                f'<span style="color:{col}">{_fmt1(btc["chg"], True)}%</span></div>',
+                unsafe_allow_html=True)
+            st.plotly_chart(btc["fig"], width="stretch", config={"displayModeBar": False})
+            st.markdown(
+                '<div class="ln-stats" style="grid-template-columns:repeat(3,1fr);margin-top:6px">'
+                f'<div class="ln-stat"><div class="k">Variación</div><div class="v" style="font-size:20px;color:{col}">{_fmt1(btc["chg"], True)}%</div>'
+                f'<div class="s">en {btc["days"]} días</div></div>'
+                f'<div class="ln-stat"><div class="k">Rango</div><div class="v" style="font-size:20px">{_fmt1(btc["rng"])}%</div>'
+                '<div class="s">de máximo a mínimo</div></div>'
+                f'<div class="ln-stat"><div class="k">Peor día</div><div class="v" style="font-size:20px;color:{R}">{_fmt1(btc["worst"], True)}%</div>'
+                f'<div class="s">mejor día {_fmt1(btc["best"], True)}%</div></div></div>'
+                f'<div class="ln-note">Bitcoin {verbo} y se mueve con fuerza de un día para otro. Por eso el agente usa velas lentas, '
+                'posiciones chicas y un freno automático. Datos reales de los últimos días, velas de 1 hora.</div>',
                 unsafe_allow_html=True)
 
     # ---- Qué es / qué no es ----
