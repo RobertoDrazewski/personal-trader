@@ -206,9 +206,13 @@ screener automático. Incluye costos, no mira el futuro y separa un período "en
 (último 40%). Solo declara VENTAJA si le gana a SPY en **ambos**.
 
 ```bash
-python lab.py        # 8 años de historia (tarda un par de minutos; guarda lab_cache.pkl y lab_resultados.csv)
-python lab.py 5      # 5 años
+python lab.py          # 8 años pedidos con el feed gratuito IEX (suele alcanzar ~6 años de historia)
+python lab.py 8 sip    # pide el feed SIP (más años); si tu plan de Alpaca no lo permite, vuelve solo a IEX
+python lab.py 5        # 5 años
 ```
+Corre DOS universos: acciones grandes de hoy (tienen sesgo de supervivencia: las que ya sabemos que subieron) y **ETFs**
+(índices, sectores, bonos, oro, internacional: sin ese sesgo). Al final compara los dos: si el momentum "gana" solo en acciones, es
+casi seguro un espejismo. Guarda `lab_cache.pkl` y `lab_resultados.csv`.
 No opera ni toca la base de datos. Límites que imprime al final (sesgo de supervivencia, etc.): leelos.
 
 ## 10. Screener automático y rotación (opcional, apagado por defecto)

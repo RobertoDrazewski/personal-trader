@@ -10,6 +10,9 @@ Compara, sobre velas DIARIAS de varios años y un universo de acciones líquidas
   - Turtle Traders (rupturas de máximos con tamaño por volatilidad ATR), con y sin filtro de mercado
   - Momentum 12-1 (comprar lo más fuerte de los últimos 12 meses, rebalanceo mensual) con y sin filtro de mercado
   - Las reglas del screener automático del agente (Top N por puntaje)
+Y corre un SEGUNDO universo "sin sesgo de supervivencia": ETFs (índices, sectores, bonos, oro, internacional). Un ETF
+existe igual en cualquier año, así que no hay "acciones que ya sabemos que subieron". Si el momentum funciona acá, es
+mucho más creíble que lo que muestre sobre acciones sueltas de hoy.
 
 Cómo se evita engañarse:
   - Costos incluidos en cada operación (SLIPPAGE_PCT por lado; las acciones no pagan comisión en Alpaca).
@@ -19,7 +22,8 @@ Cómo se evita engañarse:
   - Se muestran varias variantes de cada idea: si solo una variante gana, es frágil y probablemente casualidad.
 
 Uso (desde la carpeta del proyecto, con las variables APCA_* configuradas):
-    python lab.py            # 8 años de historia
+    python lab.py            # 8 años pedidos, feed gratuito IEX (suele alcanzar ~6 años)
+    python lab.py 8 sip      # pide el feed SIP (más historia); si tu plan no lo permite, vuelve solo a IEX
     python lab.py 5          # 5 años
 No opera ni toca la base de datos. Descarga datos diarios de Alpaca (gratis) y los guarda en lab_cache.pkl.
 """
@@ -38,10 +42,11 @@ SPLIT = 0.60            # primer 60% = "en muestra"; último 40% = "fuera de mue
 TRADING_DAYS = 252
 CACHE_FILE = "lab_cache.pkl"
 BENCH = "SPY"
+ETF_UNIVERSE = "SPY,QQQ,IWM,EFA,EEM,XLK,XLF,XLE,XLV,XLY,XLP,XLI,XLU,XLB,XLRE,XLC,TLT,GLD"
 
 
 # ============================================================ datos
-def fetch_prices(symbols: list, years: int = 8) -> dict:
+def fetch_prices(symbols: list, years: int = 8, feed: str = "iex") -> dict:
     """Velas diarias ajustadas por splits y dividendos, de Alpaca (feed IEX, gratis). {símbolo: DataFrame OHLCV}."""
     from alpaca.data.historical import StockHistoricalDataClient
     from alpaca.data.requests import StockBarsRequest
@@ -57,8 +62,14 @@ def fetch_prices(symbols: list, years: int = 8) -> dict:
         chunk = symbols[i:i + 20]
         print(f"  descargando {chunk[0]}…{chunk[-1]}")
         req = StockBarsRequest(symbol_or_symbols=chunk, timeframe=TimeFrame.Day, start=start, end=end,
-                               adjustment=Adjustment.ALL, feed=DataFeed.IEX)
-        df = client.get_stock_bars(req).df
+                               adjustment=Adjustment.ALL, feed=DataFeed.SIP if feed == "sip" else DataFeed.IEX)
+        try:
+            df = client.get_stock_bars(req).df
+        except Exception as e:
+            if feed == "sip":
+                print(f"  El feed SIP no está disponible en tu plan ({str(e)[:90]}). Uso IEX.")
+                return fetch_prices(symbols, years, "iex")
+            raise
         if df is None or df.empty:
             continue
         for sym in df.index.get_level_values(0).unique():
@@ -68,20 +79,20 @@ def fetch_prices(symbols: list, years: int = 8) -> dict:
     return out
 
 
-def load_prices(years: int = 8, use_cache: bool = True) -> dict:
-    universe = sc.parse_universe(sc.DEFAULT_UNIVERSE)
-    if BENCH not in universe:
-        universe.append(BENCH)
+def load_prices(years: int = 8, feed: str = "iex", use_cache: bool = True) -> dict:
+    universe = sc.parse_universe(sc.DEFAULT_UNIVERSE) + sc.parse_universe(ETF_UNIVERSE)
+    universe = list(dict.fromkeys(universe + [BENCH]))
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     if use_cache and os.path.exists(CACHE_FILE):
         with open(CACHE_FILE, "rb") as f:
             blob = pickle.load(f)
-        if blob.get("day") == datetime.now(timezone.utc).strftime("%Y-%m-%d") and blob.get("years") == years:
+        if blob.get("day") == today and blob.get("years") == years and blob.get("feed") == feed:
             print("Usando datos guardados de hoy (lab_cache.pkl).")
             return blob["prices"]
-    print(f"Descargando {len(universe)} símbolos, {years} años de velas diarias de Alpaca…")
-    prices = fetch_prices(universe, years)
+    print(f"Descargando {len(universe)} símbolos, {years} años de velas diarias de Alpaca (feed {feed.upper()})…")
+    prices = fetch_prices(universe, years, feed)
     with open(CACHE_FILE, "wb") as f:
-        pickle.dump({"day": datetime.now(timezone.utc).strftime("%Y-%m-%d"), "years": years, "prices": prices}, f)
+        pickle.dump({"day": today, "years": years, "feed": feed, "prices": prices}, f)
     return prices
 
 
@@ -274,12 +285,15 @@ def verdict(m: dict, bench: dict) -> str:
 
 
 # ============================================================ corrida completa
-def run_lab(prices: dict, cost: float = None, progress=print) -> pd.DataFrame:
+def run_lab(prices: dict, cost: float = None, progress=print, group: str = "acciones") -> pd.DataFrame:
+    """group: "acciones" (universo de acciones grandes, con sesgo de supervivencia) o "etfs" (sin ese sesgo)."""
     if cost is None:
         from config import Config
         cost = Config.SLIPPAGE_PCT
     if BENCH not in prices:
         raise ValueError("Falta SPY en los datos (es la referencia).")
+    names = sc.parse_universe(sc.DEFAULT_UNIVERSE if group == "acciones" else ETF_UNIVERSE)
+    prices = {k: v for k, v in prices.items() if k in names or k == BENCH}
     close, high, low = wide(prices, "close"), wide(prices, "high"), wide(prices, "low")
     close = close.ffill(limit=3)
     if len(close) < WARMUP + 250:
@@ -294,20 +308,30 @@ def run_lab(prices: dict, cost: float = None, progress=print) -> pd.DataFrame:
     progress("Simulando estrategias…")
     spy = close[BENCH]
     strategies["SPY comprar y mantener (referencia)"] = (spy / spy.iloc[0], pd.Series(1.0, index=close.index), pd.Series(0.0, index=close.index))
-    for fast, slow in ((10, 30), (50, 200)):
-        name = f"Actual: cruce SMA {fast}/{slow} + RSI + stops (diario)"
-        progress(f"  {name}")
-        eq = sma_strategy_equity({k: v for k, v in prices.items()}, fast, slow, cost).reindex(close.index).ffill().fillna(1.0)
-        strategies[name] = (eq, None, None)
-    add_w("Turtle 55/20", turtle_weights(close, high, low, 55, 20))
-    add_w("Turtle 20/10", turtle_weights(close, high, low, 20, 10))
-    add_w("Turtle 55/20 + filtro SPY>SMA200", turtle_weights(close, high, low, 55, 20, use_regime=True))
-    add_w("Momentum 12-1 top 5 + filtro", momentum_weights(close, k=5))
-    add_w("Momentum 12-1 top 10 + filtro", momentum_weights(close, k=10))
-    add_w("Momentum 12-1 top 20 + filtro", momentum_weights(close, k=20))
-    add_w("Momentum 12-1 top 10 sin filtro", momentum_weights(close, k=10, use_regime=False))
-    add_w("Screener del agente: Top 3", screener_weights(close, n=3))
-    add_w("Screener del agente: Top 5", screener_weights(close, n=5))
+    if group == "acciones":
+        for fast, slow in ((10, 30), (50, 200)):
+            name = f"Actual: cruce SMA {fast}/{slow} + RSI + stops (diario)"
+            progress(f"  {name}")
+            eq = sma_strategy_equity({k: v for k, v in prices.items()}, fast, slow, cost).reindex(close.index).ffill().fillna(1.0)
+            strategies[name] = (eq, None, None)
+        add_w("Turtle 55/20", turtle_weights(close, high, low, 55, 20))
+        add_w("Turtle 20/10", turtle_weights(close, high, low, 20, 10))
+        add_w("Turtle 55/20 + filtro SPY>SMA200", turtle_weights(close, high, low, 55, 20, use_regime=True))
+        add_w("Momentum 12-1 top 5 + filtro", momentum_weights(close, k=5))
+        add_w("Momentum 12-1 top 10 + filtro", momentum_weights(close, k=10))
+        add_w("Momentum 12-1 top 20 + filtro", momentum_weights(close, k=20))
+        add_w("Momentum 12-1 top 10 sin filtro", momentum_weights(close, k=10, use_regime=False))
+        add_w("Screener del agente: Top 3", screener_weights(close, n=3))
+        add_w("Screener del agente: Top 5", screener_weights(close, n=5))
+    else:
+        # ETFs: pocos instrumentos y de naturaleza distinta (acciones de EE.UU., sectores, internacional, bonos, oro).
+        # Momentum con filtro propio: solo se compra lo que sube en 12 meses; si nada sube, queda en efectivo.
+        add_w("ETFs momentum 12-1 top 3 + filtro SPY>SMA200", momentum_weights(close, k=3))
+        add_w("ETFs momentum 12-1 top 5 + filtro SPY>SMA200", momentum_weights(close, k=5))
+        add_w("ETFs momentum 12-1 top 3 (solo lo que sube)", momentum_weights(close, k=3, use_regime=False))
+        add_w("ETFs momentum 12-1 top 5 (solo lo que sube)", momentum_weights(close, k=5, use_regime=False))
+        add_w("ETFs Turtle 55/20", turtle_weights(close, high, low, 55, 20))
+        add_w("ETFs Turtle 55/20 + filtro SPY>SMA200", turtle_weights(close, high, low, 55, 20, use_regime=True))
 
     window = close.index[WARMUP:]
     rows, bench = [], None
@@ -333,15 +357,21 @@ def run_lab(prices: dict, cost: float = None, progress=print) -> pd.DataFrame:
     res = pd.DataFrame(out)
     res.attrs["window"] = (window[0], window[-1], len(window))
     res.attrs["split_date"] = window[int(len(window) * SPLIT)]
+    res.attrs["group"] = group
+    res.attrs["n_symbols"] = close.shape[1]
     return res
 
 
 def print_report(res: pd.DataFrame):
     start, end, n = res.attrs["window"]
     split_date = res.attrs["split_date"]
+    group = res.attrs.get("group", "acciones")
+    label = ("ACCIONES GRANDES (con sesgo de supervivencia)" if group == "acciones"
+             else "ETFs (sin sesgo de supervivencia)")
     p = lambda x: "  —  " if pd.isna(x) else f"{x * 100:6.1f}%"
     print("\n" + "=" * 118)
-    print(f"LABORATORIO — {start:%Y-%m-%d} a {end:%Y-%m-%d} ({n / TRADING_DAYS:.1f} años) · fuera de muestra desde {split_date:%Y-%m-%d}")
+    print(f"LABORATORIO · {label} · {res.attrs.get('n_symbols', '?')} símbolos")
+    print(f"{start:%Y-%m-%d} a {end:%Y-%m-%d} ({n / TRADING_DAYS:.1f} años) · fuera de muestra desde {split_date:%Y-%m-%d}")
     print("=" * 118)
     print(f"{'Estrategia':<46}{'RETORNO/AÑO':>18}{'SHARPE':>14}{'MAYOR CAÍDA':>13}{'EXPOS.':>8}{'GIRO/AÑO':>10}")
     print(f"{'':<46}{'todo  | fuera':>18}{'todo | fuera':>14}{'(fuera)':>13}")
@@ -358,26 +388,57 @@ def print_report(res: pd.DataFrame):
     winners = res[res["veredicto"].str.startswith(("VENTAJA", "menor"))]
     print("\nCÓMO LEER ESTO")
     if winners.empty:
-        print("  Ninguna estrategia le ganó a comprar SPY de forma clara fuera de muestra. Es información valiosa:")
+        print("  Ninguna estrategia le ganó a comprar SPY de forma clara. Es información valiosa:")
         print("  conviene NO activar nada más agresivo y seguir midiendo en paper trading.")
     else:
         print(f"  {len(winners)} de {len(res) - 1} estrategias muestran algo. Desconfiá si solo gana UNA variante de una misma idea")
         print("  (fragilidad), o si en muestra se ve genial y fuera de muestra no. Que algo gane acá NO es una garantía.")
+    print("  Con muchas variantes probadas, alguna gana por pura casualidad: por eso un resultado solo cuenta si lo repiten sus variantes.")
     print("\nLÍMITES (importan):")
-    print("  · Sesgo de supervivencia: el universo son acciones grandes de HOY; las que quebraron o salieron no están, y eso")
-    print("    infla los resultados de las estrategias de momentum. Tomá cualquier ventaja como optimista.")
-    print("  · Sharpe con tasa libre de riesgo = 0. Costos: SLIPPAGE_PCT por lado, sin comisión (acciones en Alpaca).")
+    if group == "acciones":
+        print("  · Sesgo de supervivencia: el universo son acciones grandes de HOY; las que quebraron o salieron no están, y eso")
+        print("    infla los resultados de las estrategias de momentum. Tomá cualquier ventaja como optimista.")
+    else:
+        print("  · ETFs: sin sesgo de supervivencia, pero hay pocos instrumentos y algunos (TLT, GLD) no son acciones.")
+    print("  · Sharpe con tasa libre de riesgo = 0. Costos: SLIPPAGE_PCT por lado, sin comisión (acciones/ETFs en Alpaca).")
     print("  · Las estrategias se fijaron de antemano, pero yo conozco la historia: 'fuera de muestra' no es puro.")
     print("  · El screener en vivo además usa trailing stop de 3% y filtro de noticias, que acá no se simulan.")
     print("  · Siguiente paso si algo pasa la prueba: paper trading de 3 a 6 meses ANTES de pensar en dinero real.\n")
 
 
+def cross_check(res_stocks: pd.DataFrame, res_etfs: pd.DataFrame):
+    """Compara los dos universos: ¿el momentum que 'gana' en acciones también gana donde no hay sesgo de supervivencia?"""
+    win_s = res_stocks[res_stocks["estrategia"].str.contains("Momentum") & res_stocks["veredicto"].str.startswith("VENTAJA")]
+    win_e = res_etfs[res_etfs["estrategia"].str.contains("momentum") & res_etfs["veredicto"].str.startswith("VENTAJA")]
+    print("=" * 118)
+    print("COMPARACIÓN ENTRE UNIVERSOS (la prueba clave contra el sesgo de supervivencia)")
+    print("=" * 118)
+    if len(win_s) and not len(win_e):
+        print("  El momentum 'gana' en las acciones de hoy pero NO en los ETFs: es la huella típica del sesgo de supervivencia.")
+        print("  La ventaja en acciones probablemente es espejismo (elegimos acciones que ya sabemos que subieron).")
+    elif len(win_s) and len(win_e):
+        print("  El momentum gana en los dos universos. Eso lo vuelve bastante más creíble, aunque no es garantía.")
+        print("  Siguiente paso razonable: probarlo en paper trading 3 a 6 meses contra SPY.")
+    elif len(win_e):
+        print("  El momentum gana en ETFs (sin sesgo) pero no en acciones sueltas. Merece seguimiento en paper trading.")
+    else:
+        print("  El momentum no le gana de forma clara a SPY en ninguno de los dos universos.")
+    print()
+
+
 def main():
-    years = int(sys.argv[1]) if len(sys.argv) > 1 else 8
-    prices = load_prices(years)
-    res = run_lab(prices)
-    print_report(res)
-    res.to_csv("lab_resultados.csv", index=False)
+    args = sys.argv[1:]
+    feed = "sip" if any(a.lower() == "sip" for a in args) else "iex"
+    nums = [a for a in args if a.isdigit()]
+    years = int(nums[0]) if nums else 8
+    prices = load_prices(years, feed)
+    res_s = run_lab(prices, group="acciones")
+    print_report(res_s)
+    res_e = run_lab(prices, group="etfs")
+    print_report(res_e)
+    cross_check(res_s, res_e)
+    out = pd.concat([res_s.assign(universo="acciones"), res_e.assign(universo="etfs")], ignore_index=True)
+    out.to_csv("lab_resultados.csv", index=False)
     print("Resultados guardados en lab_resultados.csv\n")
 
 
