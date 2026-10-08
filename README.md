@@ -196,3 +196,33 @@ kill switch si el equity cae `SUDDEN_DROP_PCT` (5%) entre dos ciclos, o si hay
 las compras nuevas; los stops siguen vigilando lo que ya está abierto. Se desactiva a mano
 en el panel. Un agente caído del todo no puede avisar: para eso conviene la política de
 reinicio de Railway y revisar el panel.
+
+
+## 9. Laboratorio de pruebas (`lab.py`) — ¿esta estrategia le gana a comprar SPY?
+
+Antes de hacer más agresivo al agente, medilo. `lab.py` compara con velas diarias de varios años (gratis, Alpaca):
+SPY comprar y mantener, la estrategia actual (cruce de SMA + RSI + stops), Turtle Traders, Momentum 12-1 y las reglas del
+screener automático. Incluye costos, no mira el futuro y separa un período "en muestra" (primer 60%) de uno "fuera de muestra"
+(último 40%). Solo declara VENTAJA si le gana a SPY en **ambos**.
+
+```bash
+python lab.py        # 8 años de historia (tarda un par de minutos; guarda lab_cache.pkl y lab_resultados.csv)
+python lab.py 5      # 5 años
+```
+No opera ni toca la base de datos. Límites que imprime al final (sesgo de supervivencia, etc.): leelos.
+
+## 10. Screener automático y rotación (opcional, apagado por defecto)
+
+Hoy el Screener del panel es manual y el agente solo opera lo que está en `SYMBOLS`. Con estas variables en el servicio **agent**:
+
+| Variable | Qué hace |
+|---|---|
+| `AUTO_SCREENER=true` | Escanea solo la lista (`AUTO_UNIVERSE`, o la de `screener_core.py`) cada `AUTO_SCAN_MINUTES` y muestra el Top 3 en el panel y la landing. **No compra.** |
+| `AUTO_ROTATION=true` | Además compra la mejor candidata si hay lugar libre (`MAX_OPEN_POSITIONS`) y, si no hay lugar, reemplaza a una posición que **abrió el propio screener** y que perdió fuerza. |
+
+Reglas de seguridad: una acción solo es elegible con tendencia sana (sobre su media de 50 días, sin caída fuerte hoy, no sobrecomprada);
+el reemplazo exige que la nueva supere a la débil por `AUTO_REPLACE_MARGIN` puntos, que la débil lleve al menos `AUTO_MIN_HOLD_MINUTES`
+(1 día por defecto, evita day trades), máximo `AUTO_MAX_REPLACEMENTS_PER_DAY` por día, y no se compra en los primeros `AUTO_SKIP_OPEN_MINUTES`
+de la rueda. Nunca toca posiciones manuales ni las de `SYMBOLS`. Usa los mismos frenos de siempre (tamaño, trailing stop, stop trading,
+filtro de noticias). Con `MODE=live` la rotación queda bloqueada salvo que pongas también `AUTO_ALLOW_LIVE=true`.
+Que una posición esté en pérdida **no** es motivo para venderla; lo es que su tendencia se haya roto.

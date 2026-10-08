@@ -4,7 +4,7 @@ Portada pública del Puma-Code Trading Agent (demo en paper trading).
 Explica qué es, usa datos reales de la base (equity, señales, asteroide 3D) y lleva al panel completo con un botón.
 No tiene contraseña: no muestra ni permite nada sensible (los controles del panel piden clave de administrador).
 """
-from datetime import datetime
+from datetime import datetime, timezone
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
@@ -324,7 +324,30 @@ def _bt_table(bt_df: pd.DataFrame):
     return html, avg, len(d)
 
 
-def render_landing(img_b64, equity_df, sigs, positions, asteroid_fn, style_fig, on_enter, fetch_bars=None, admin_login=None, admin_enabled=False, bt_df=None):
+def _top_table(auto_top):
+    """Top N del screener automático (lo escribe el agente en la base). None si no está activado o no hay datos."""
+    if not auto_top or not auto_top.get("rows"):
+        return None
+    n = int(auto_top.get("top_n") or 3)
+    rows = ""
+    for i, r in enumerate(auto_top["rows"][:n], 1):
+        dc = r.get("day_chg")
+        ml = r.get("mom_long")
+        dtxt = "—" if dc is None else f'<span class="{"g" if dc >= 0 else "r"}">{_fmt1(dc * 100, True)}%</span>'
+        mtxt = "—" if ml is None else f'{_fmt1(ml * 100, True)}%'
+        rows += (f'<tr><td>{i}. {r["symbol"]}</td><td>{"—" if r.get("price") is None else "$" + format(r["price"], ",.2f")}</td>'
+                 f'<td>{dtxt}</td><td>{mtxt}</td><td>{"—" if r.get("score") is None else format(r["score"], ".0f")}</td></tr>')
+    html = ('<table class="ln-table"><tr><th>Acción</th><th>Precio</th><th>Hoy</th><th>6 meses</th><th>Puntaje</th></tr>' + rows + '</table>')
+    when = ""
+    try:
+        t = datetime.fromisoformat(auto_top["ts"]).astimezone(timezone.utc)
+        when = f' Último escaneo: {t:%d/%m %H:%M} UTC.'
+    except Exception:
+        pass
+    return html, when, int(auto_top.get("eligible") or 0), int(auto_top.get("scored") or 0), bool(auto_top.get("rotation"))
+
+
+def render_landing(img_b64, equity_df, sigs, positions, asteroid_fn, style_fig, on_enter, fetch_bars=None, admin_login=None, admin_enabled=False, bt_df=None, auto_top=None):
     """Dibuja la portada pública. `on_enter` se llama al tocar los botones que llevan al panel completo."""
     st.markdown(LANDING_CSS, unsafe_allow_html=True)
 
@@ -484,6 +507,18 @@ def render_landing(img_b64, equity_df, sigs, positions, asteroid_fn, style_fig, 
             f'*Comprar y mantener se muestra ajustado a la misma exposición del agente ({_pct(Config.MAX_POSITION_PCT, 0)} por posición). '
             'Son pruebas sobre datos del pasado con los mismos parámetros que se eligieron, así que tienden a verse mejor que lo que pasará después. '
             'Por eso todavía es una demostración.</div>', unsafe_allow_html=True)
+
+    top = _top_table(auto_top)
+    if top:
+        tabla, when, n_el, n_sc, rot = top
+        modo = ("El agente puede comprar la mejor candidata cuando hay lugar y reemplazar a la que perdió fuerza, siempre con sus frenos de riesgo."
+                if rot else "Por ahora solo se muestra: el agente no compra por este ranking.")
+        st.markdown(
+            '<div class="ln-sub" style="margin-top:14px">Top 3 del día · screener automático</div>'
+            f'{tabla}'
+            f'<div class="ln-note">De {n_sc} acciones escaneadas, {n_el} pasan los filtros de tendencia sana. El puntaje combina fuerza de los últimos meses, '
+            f'del último mes y de hoy, comparada con las demás. {modo}{when} No es una recomendación de compra: es una demostración de cómo el agente prioriza.</div>',
+            unsafe_allow_html=True)
 
     # ---- Cripto conservadora ----
     tf_h = Config.CRYPTO_TIMEFRAME_MINUTES / 60

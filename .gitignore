@@ -10,3 +10,5 @@ agent_stderr.log
 .DS_Store
 .agents/
 .claude/
+lab_cache.pkl
+lab_resultados.csv

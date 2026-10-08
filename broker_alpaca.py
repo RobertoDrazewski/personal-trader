@@ -11,13 +11,15 @@ Acciones y cripto usan la misma cuenta y las mismas API keys, pero:
 """
 from datetime import datetime, timedelta, timezone
 
+import pandas as pd
+
 from alpaca.trading.client import TradingClient
 from alpaca.trading.requests import MarketOrderRequest, TrailingStopOrderRequest, GetOrdersRequest
 from alpaca.trading.enums import OrderSide, TimeInForce, QueryOrderStatus
 from alpaca.data.historical import StockHistoricalDataClient, CryptoHistoricalDataClient
 from alpaca.data.requests import StockBarsRequest, CryptoBarsRequest
 from alpaca.data.timeframe import TimeFrame, TimeFrameUnit
-from alpaca.data.enums import DataFeed
+from alpaca.data.enums import DataFeed, Adjustment
 
 from config import Config, is_crypto, norm_symbol
 from logger_db import log_event, log_order
@@ -105,6 +107,23 @@ class AlpacaBroker:
         if symbol in df.index.get_level_values(0):
             df = df.loc[symbol]
         return df.tail(lookback)
+
+    def get_daily_closes(self, symbols, trading_days: int = 220):
+        """Cierres diarios (ajustados por splits y dividendos) de varias acciones en UN solo pedido.
+        Devuelve un DataFrame con una columna por símbolo, o None si no hay datos. La última fila es hoy (parcial si la rueda está abierta)."""
+        end = datetime.now(timezone.utc)
+        req = StockBarsRequest(
+            symbol_or_symbols=list(symbols), timeframe=TimeFrame.Day,
+            start=end - timedelta(days=int(trading_days * 1.6) + 10), end=end,
+            adjustment=Adjustment.ALL, feed=DataFeed.IEX,
+        )
+        df = self.data_client.get_stock_bars(req).df
+        if df is None or df.empty:
+            return None
+        close = df["close"].unstack(level=0)
+        close.index = pd.to_datetime(close.index).tz_convert(None).normalize()
+        close = close[~close.index.duplicated(keep="last")].sort_index()
+        return close.tail(trading_days)
 
     # ---------- Órdenes ----------
     def submit_market_order(self, symbol: str, qty, side: str, reason: str = ""):

@@ -19,6 +19,8 @@ from strategy import compute_signal
 from alerts import send_alert
 from news_source import get_latest_headline
 from llm_analysis import analyze_news
+import screener_core
+import screener_auto
 
 CRYPTO_PEAK_PREFIX = "crypto_peak:"
 _last_block_msg = {}   # evita repetir en el log el mismo motivo de bloqueo cada minuto
@@ -136,6 +138,85 @@ def protect_crypto_positions(broker: AlpacaBroker, positions=None):
 
 
 # ---------- Un símbolo ----------
+def _try_buy(broker: AlpacaBroker, risk: RiskEngine, symbol: str, equity: float, held: set, counts: dict,
+             buy_reason: str, last_close, live_price=None) -> bool:
+    """
+    Abre una posición nueva con todos los filtros de siempre (cupo de posiciones, tamaño, frenos de cripto,
+    filtro de noticias, orden, confirmación y trailing stop). La usan la señal de compra normal y el screener
+    automático. Devuelve True si se compró.
+    """
+    crypto = is_crypto(symbol)
+    kind = "crypto" if crypto else "stock"
+    if not risk.can_open_new_position(counts[kind], crypto=crypto):
+        log_event("info", f"{symbol}: señal de compra ignorada — máximo de posiciones {'cripto' if crypto else 'de acciones'} alcanzado.")
+        return False
+    price = (live_price if crypto else None) or last_close
+    if not price:
+        return False
+    qty = risk.position_size(equity, price, crypto=crypto)
+    if qty <= 0:
+        return False
+
+    if crypto:
+        blocked = crypto_buy_blocked(symbol, equity, counts.get("crypto_value", 0.0), qty * price)
+        if blocked:
+            if _last_block_msg.get(symbol) != blocked.split(":")[0]:
+                log_event("info", f"{symbol}: señal de compra ignorada — {blocked}")
+                _last_block_msg[symbol] = blocked.split(":")[0]
+            return False
+        _last_block_msg.pop(symbol, None)
+
+    if crypto and time.time() - _news_blocked_at.get(symbol, 0) < NEWS_RECHECK_SECONDS:
+        return False   # con velas largas la señal dura horas: no se vuelve a consultar el LLM cada minuto
+    if Config.USE_NEWS_FILTER:
+        headline = get_latest_headline(norm_symbol(symbol) if crypto else symbol)
+        if headline:
+            sentiment = analyze_news(symbol, headline)
+            log_event(
+                "info",
+                f"{symbol}: noticia '{headline[:80]}' -> sentimiento {sentiment['sentiment']} "
+                f"(confianza {sentiment['confidence']:.2f})",
+            )
+            if (sentiment["sentiment"] == "negative"
+                    and sentiment["confidence"] >= Config.NEWS_NEGATIVE_BLOCK_CONFIDENCE):
+                log_event("info", f"{symbol}: compra CANCELADA por noticia negativa — {sentiment['reason']}")
+                if crypto:
+                    _news_blocked_at[symbol] = time.time()
+                return False
+            buy_reason = f"{buy_reason} | noticia: {sentiment['sentiment']}"
+
+    qty_label = f"{qty:.6f}" if crypto else f"{qty}"
+    order = broker.submit_market_order(symbol, qty, "buy", reason=buy_reason)
+    if not order:
+        return False
+    filled_order = broker.wait_for_fill(str(order.id))
+    if not filled_order:
+        send_alert(f"⚠️ Compra de {symbol} x{qty_label} enviada pero no se confirmó el fill a tiempo.")
+        return False
+
+    held.add(norm_symbol(symbol))
+    counts[kind] += 1
+
+    if crypto:
+        fill_price = float(filled_order.filled_avg_price or price)
+        counts["crypto_value"] = counts.get("crypto_value", 0.0) + qty * fill_price
+        crypto_note_buy()
+        _set_peak(symbol, fill_price)
+        send_alert(
+            f"🟢 COMPRA {symbol} x{qty_label} @ ~{fill_price:,.2f} — {buy_reason}\n"
+            f"   Trailing stop cripto: {risk.trailing_stop_percent(crypto=True)}% (lo vigila el agente)"
+        )
+    else:
+        trail_pct = risk.trailing_stop_percent()
+        ts_order = broker.submit_trailing_stop_sell(symbol, qty, trail_pct, reason="protección post-compra")
+        if ts_order:
+            send_alert(f"🟢 COMPRA {symbol} x{qty_label} @ ~{price} — {buy_reason}\n   Trailing stop: {trail_pct}%")
+        else:
+            send_alert(f"⚠️ COMPRA {symbol} x{qty_label} ejecutada, pero el trailing stop FALLÓ.")
+
+    return True
+
+
 def process_symbol(broker: AlpacaBroker, risk: RiskEngine, symbol: str, equity: float, held: set, counts: dict):
     crypto = is_crypto(symbol)
     kind = "crypto" if crypto else "stock"
@@ -152,73 +233,7 @@ def process_symbol(broker: AlpacaBroker, risk: RiskEngine, symbol: str, equity: 
     has_position = norm_symbol(symbol) in held
 
     if result["signal"] == "buy" and not has_position:
-        if not risk.can_open_new_position(counts[kind], crypto=crypto):
-            log_event("info", f"{symbol}: señal de compra ignorada — máximo de posiciones {'cripto' if crypto else 'de acciones'} alcanzado.")
-            return
-        price = (live_price if crypto else None) or result.get("last_close")
-        if not price:
-            return
-        qty = risk.position_size(equity, price, crypto=crypto)
-        if qty <= 0:
-            return
-
-        if crypto:
-            blocked = crypto_buy_blocked(symbol, equity, counts.get("crypto_value", 0.0), qty * price)
-            if blocked:
-                if _last_block_msg.get(symbol) != blocked.split(":")[0]:
-                    log_event("info", f"{symbol}: señal de compra ignorada — {blocked}")
-                    _last_block_msg[symbol] = blocked.split(":")[0]
-                return
-            _last_block_msg.pop(symbol, None)
-
-        buy_reason = result["reason"]
-        if crypto and time.time() - _news_blocked_at.get(symbol, 0) < NEWS_RECHECK_SECONDS:
-            return   # con velas largas la señal dura horas: no se vuelve a consultar el LLM cada minuto
-        if Config.USE_NEWS_FILTER:
-            headline = get_latest_headline(norm_symbol(symbol) if crypto else symbol)
-            if headline:
-                sentiment = analyze_news(symbol, headline)
-                log_event(
-                    "info",
-                    f"{symbol}: noticia '{headline[:80]}' -> sentimiento {sentiment['sentiment']} "
-                    f"(confianza {sentiment['confidence']:.2f})",
-                )
-                if (sentiment["sentiment"] == "negative"
-                        and sentiment["confidence"] >= Config.NEWS_NEGATIVE_BLOCK_CONFIDENCE):
-                    log_event("info", f"{symbol}: compra CANCELADA por noticia negativa — {sentiment['reason']}")
-                    if crypto:
-                        _news_blocked_at[symbol] = time.time()
-                    return
-                buy_reason = f"{buy_reason} | noticia: {sentiment['sentiment']}"
-
-        qty_label = f"{qty:.6f}" if crypto else f"{qty}"
-        order = broker.submit_market_order(symbol, qty, "buy", reason=buy_reason)
-        if not order:
-            return
-        filled_order = broker.wait_for_fill(str(order.id))
-        if not filled_order:
-            send_alert(f"⚠️ Compra de {symbol} x{qty_label} enviada pero no se confirmó el fill a tiempo.")
-            return
-
-        held.add(norm_symbol(symbol))
-        counts[kind] += 1
-
-        if crypto:
-            fill_price = float(filled_order.filled_avg_price or price)
-            counts["crypto_value"] = counts.get("crypto_value", 0.0) + qty * fill_price
-            crypto_note_buy()
-            _set_peak(symbol, fill_price)
-            send_alert(
-                f"🟢 COMPRA {symbol} x{qty_label} @ ~{fill_price:,.2f} — {buy_reason}\n"
-                f"   Trailing stop cripto: {risk.trailing_stop_percent(crypto=True)}% (lo vigila el agente)"
-            )
-        else:
-            trail_pct = risk.trailing_stop_percent()
-            ts_order = broker.submit_trailing_stop_sell(symbol, qty, trail_pct, reason="protección post-compra")
-            if ts_order:
-                send_alert(f"🟢 COMPRA {symbol} x{qty_label} @ ~{price} — {buy_reason}\n   Trailing stop: {trail_pct}%")
-            else:
-                send_alert(f"⚠️ COMPRA {symbol} x{qty_label} ejecutada, pero el trailing stop FALLÓ.")
+        _try_buy(broker, risk, symbol, equity, held, counts, result["reason"], result.get("last_close"), live_price)
 
     elif result["signal"] == "sell" and has_position:
         if not crypto:
@@ -232,6 +247,56 @@ def process_symbol(broker: AlpacaBroker, risk: RiskEngine, symbol: str, equity: 
                 _clear_peak(symbol)
                 register_crypto_close(symbol, pnl)
             send_alert(f"🔴 VENTA/cierre {symbol} — {result['reason']}")
+
+
+# ---------- Screener automático (apagado por defecto: AUTO_SCREENER / AUTO_ROTATION) ----------
+def auto_cycle(broker: AlpacaBroker, risk: RiskEngine, equity: float, held: set, counts: dict, stock_market_open: bool):
+    """
+    1) Escanea el universo y publica el Top N (cada AUTO_SCAN_MINUTES).
+    2) Si AUTO_ROTATION está activo y la rueda está abierta: compra la mejor candidata si hay lugar libre, o reemplaza
+       a una posición que abrió el propio screener y que perdió fuerza (reglas en screener_core.decide).
+    Respeta MAX_OPEN_POSITIONS y todos los filtros de _try_buy. Nunca toca posiciones que no abrió el screener.
+    """
+    scores = screener_auto.maybe_scan(broker)
+    if not Config.AUTO_ROTATION or scores is None or not stock_market_open:
+        return
+    since_open = screener_auto.minutes_since_open()
+    if since_open is not None and since_open < Config.AUTO_SKIP_OPEN_MINUTES:
+        return   # los primeros minutos de la rueda son los más ruidosos
+
+    own = screener_auto.own_positions(held)
+    left = max(0, Config.AUTO_MAX_REPLACEMENTS_PER_DAY - screener_auto.replacements_today())
+    d = screener_core.decide(
+        scores, held, Config.MAX_OPEN_POSITIONS - counts["stock"], own, Config.AUTO_TOP_N,
+        Config.AUTO_MIN_SCORE, Config.AUTO_REPLACE_MARGIN, left, Config.AUTO_MIN_HOLD_MINUTES,
+    )
+    if d["action"] == "none":
+        if d["reason"] and _last_block_msg.get("auto") != d["reason"]:
+            log_event("info", f"Screener automático: sin cambios — {d['reason']}")
+            _last_block_msg["auto"] = d["reason"]
+        return
+    _last_block_msg.pop("auto", None)
+
+    cand = d["buy"]
+    price = float(scores.loc[cand, "price"])
+    why = f"screener automático: {d['reason']}"
+
+    if d["action"] == "replace":
+        weak = d["sell"]
+        broker.cancel_open_orders_for_symbol(weak)
+        if not broker.close_position(weak, reason=why):
+            return
+        held.discard(norm_symbol(weak))
+        counts["stock"] -= 1
+        screener_auto.clear_buy(weak)
+        screener_auto.note_replacement()   # se cuenta aunque la compra falle, para no entrar en un bucle de ventas
+        send_alert(f"🔄 REEMPLAZO — vendo {weak} y busco {cand}: {d['reason']}")
+        time.sleep(2)   # deja que la venta se asiente antes de usar ese cupo
+
+    if _try_buy(broker, risk, cand, equity, held, counts, why, price):
+        screener_auto.note_buy(cand)
+    elif d["action"] == "replace":
+        log_event("warning", f"Screener automático: se vendió {d['sell']} pero no se pudo comprar {cand}.")
 
 
 # ---------- Un ciclo ----------
@@ -286,6 +351,12 @@ def run_cycle(broker: AlpacaBroker, risk: RiskEngine):
             process_symbol(broker, risk, symbol, equity, held, counts)
         except Exception as e:
             log_event("error", f"Error procesando {symbol}: {e}")
+
+    if Config.AUTO_SCREENER:
+        try:
+            auto_cycle(broker, risk, equity, held, counts, stock_market_open)
+        except Exception as e:
+            log_event("error", f"Error en el screener automático: {e}")
 
 
 def main():

@@ -112,6 +112,26 @@ class Config:
     TRAILING_STOP_PCT = _get_float("TRAILING_STOP_PCT", 0.03)
     MAX_OPEN_POSITIONS = _get_int("MAX_OPEN_POSITIONS", 3)
 
+    # --- Screener automático (opcional, APAGADO por defecto) ---
+    # AUTO_SCREENER=true : el agente escanea solo una lista amplia de acciones cada AUTO_SCAN_MINUTES y publica el
+    #                      "Top N" en el panel y la landing. NO compra nada por sí mismo.
+    # AUTO_ROTATION=true : además compra la mejor candidata si hay lugar libre y, si no hay lugar, reemplaza a una
+    #                      posición que el propio screener abrió y que perdió fuerza (ver screener_core.decide).
+    # Respeta todos los frenos de siempre (MAX_OPEN_POSITIONS, tamaño de posición, trailing stop, stop trading).
+    # Antes de activar AUTO_ROTATION corré `python lab.py` y mirá si las reglas tienen ventaja.
+    AUTO_ROTATION = _get_bool("AUTO_ROTATION", False)
+    AUTO_SCREENER = _get_bool("AUTO_SCREENER", False) or AUTO_ROTATION
+    AUTO_UNIVERSE = os.getenv("AUTO_UNIVERSE", "")             # vacío = la lista por defecto de screener_core.py
+    AUTO_TOP_N = _get_int("AUTO_TOP_N", 3)
+    AUTO_SCAN_MINUTES = _get_int("AUTO_SCAN_MINUTES", 30)
+    AUTO_MIN_SCORE = _get_float("AUTO_MIN_SCORE", 70.0)        # puntaje mínimo (0-100) para comprar
+    AUTO_MIN_PRICE = _get_float("AUTO_MIN_PRICE", 10.0)        # no compra acciones más baratas que esto
+    AUTO_REPLACE_MARGIN = _get_float("AUTO_REPLACE_MARGIN", 15.0)   # puntos que debe superar la candidata a la que se reemplaza
+    AUTO_MAX_REPLACEMENTS_PER_DAY = _get_int("AUTO_MAX_REPLACEMENTS_PER_DAY", 1)
+    AUTO_MIN_HOLD_MINUTES = _get_int("AUTO_MIN_HOLD_MINUTES", 1440)  # una posición no se reemplaza antes de este tiempo (evita day trades y vaivenes)
+    AUTO_SKIP_OPEN_MINUTES = _get_int("AUTO_SKIP_OPEN_MINUTES", 15)  # no compra en los primeros minutos de la rueda (son los más ruidosos)
+    AUTO_ALLOW_LIVE = _get_bool("AUTO_ALLOW_LIVE", False)      # seguro extra: la rotación NO corre con dinero real salvo que lo pongas en true
+
     # --- Loop ---
     POLL_INTERVAL_SECONDS = _get_int("POLL_INTERVAL_SECONDS", 60)
 
@@ -154,6 +174,10 @@ class Config:
         tf = cls.CRYPTO_TIMEFRAME_MINUTES
         if not (1 <= tf <= 59 or tf == 1440 or (tf % 60 == 0 and tf // 60 <= 23)):
             problems.append(f"CRYPTO_TIMEFRAME_MINUTES={tf} no es válido para Alpaca (usá 1-59, múltiplos de 60 hasta 1380, o 1440)")
+        if cls.AUTO_ROTATION and not cls.IS_PAPER and not cls.AUTO_ALLOW_LIVE:
+            problems.append("AUTO_ROTATION=true con MODE=live está bloqueado. Si de verdad lo querés, poné también AUTO_ALLOW_LIVE=true")
+        if cls.AUTO_TOP_N < 1:
+            problems.append("AUTO_TOP_N tiene que ser 1 o más")
         if not cls.DATABASE_URL:
             problems.append("Falta DATABASE_URL — conectá el plugin de Postgres a este servicio en Railway")
         return problems

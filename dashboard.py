@@ -38,6 +38,15 @@ try:
 except Exception:
     page_icon_img = "🤖"
 
+def _auto_top():
+    """Último Top del screener automático que dejó el agente en la base (o None si está apagado)."""
+    try:
+        raw = get_state("auto_top")
+        return json.loads(raw) if raw else None
+    except Exception:
+        return None
+
+
 @st.cache_resource
 def _seo_once():
     return patch_index_html()
@@ -726,7 +735,7 @@ if st.session_state["view"] == "landing":
     render_landing(
         bt_df=_bt, img_b64=img_b64, equity_df=_eq, sigs=latest_signals(), positions=_pos,
         asteroid_fn=asteroid, style_fig=style_fig, on_enter=go_panel, fetch_bars=fetch_bars,
-        admin_login=admin_login, admin_enabled=bool(ADMIN_PASSWORD),
+        admin_login=admin_login, admin_enabled=bool(ADMIN_PASSWORD), auto_top=_auto_top(),
     )
     st.stop()
 
@@ -1125,6 +1134,25 @@ def _scan_allowed() -> bool:
 
 with tab_screener:
     st.subheader("Screener")
+    _top = _auto_top()
+    if _top and _top.get("rows"):
+        st.markdown("**Screener automático — Top del momento**")
+        _df = pd.DataFrame(_top["rows"][: max(int(_top.get("top_n") or 3), 3)])
+        _df = _df.rename(columns={"symbol": "Acción", "score": "Puntaje", "price": "Precio", "day_chg": "Hoy",
+                                  "mom_long": "6 meses", "rsi": "RSI"})
+        for c in ("Hoy", "6 meses"):
+            if c in _df:
+                _df[c] = _df[c].map(lambda v: "—" if v is None else f"{v * 100:+.1f}%")
+        st.dataframe(_df, width="stretch", hide_index=True)
+        try:
+            _when = datetime.fromisoformat(_top["ts"]).strftime("%d/%m %H:%M UTC")
+        except Exception:
+            _when = "?"
+        st.caption(f"{_top.get('eligible', 0)} acciones elegibles de {_top.get('scored', 0)} escaneadas · último escaneo {_when} · "
+                   + ("la rotación automática está ACTIVADA (compra y reemplaza con los frenos de siempre)." if _top.get("rotation")
+                      else "solo muestra el ranking: el agente no compra por él."))
+        st.divider()
+    st.markdown("**Escaneo manual**")
     universe_input = st.text_area("Símbolos candidatos (acciones y pares cripto con barra)",
                                   value=SCREENER_STOCKS + "," + SCREENER_CRYPTO, height=90)
     if st.button("Escanear ahora") and _scan_allowed():
