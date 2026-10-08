@@ -230,3 +230,13 @@ el reemplazo exige que la nueva supere a la débil por `AUTO_REPLACE_MARGIN` pun
 de la rueda. Nunca toca posiciones manuales ni las de `SYMBOLS`. Usa los mismos frenos de siempre (tamaño, trailing stop, stop trading,
 filtro de noticias). Con `MODE=live` la rotación queda bloqueada salvo que pongas también `AUTO_ALLOW_LIVE=true`.
 Que una posición esté en pérdida **no** es motivo para venderla; lo es que su tendencia se haya roto.
+
+## 11. Idioma: Español / English
+
+Arriba a la derecha, en la landing y en el panel, hay un botón **🌐 English / 🌐 Español** que cambia toda la pantalla
+(textos, tablas, gráficos, glosario, la ficha del asteroide 3D y los mensajes del agente que se muestran en el log).
+El idioma se recuerda en el enlace (`?lang=en`), así que podés compartir la versión en inglés.
+
+- `i18n.py`: el mecanismo (traduce al dibujar; en español no cambia nada).
+- `i18n_en.py`: la tabla de frases español → inglés. **Si agregás un texto nuevo en español en la interfaz, agregá acá su versión en inglés**; si falta, simplemente se ve en español.
+- Límite conocido: la vista previa al compartir el link (título y descripción de WhatsApp/LinkedIn) queda en español porque la leen los buscadores antes de que corra la página.

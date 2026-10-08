@@ -26,6 +26,7 @@ from logger_db import init_db, get_state, set_state, delete_state, _dsn
 from broker_alpaca import AlpacaBroker
 from landing import render_landing
 from seo import patch_index_html
+import i18n
 from strategy import compute_signal
 
 APP_TITLE = "Puma-Code Trading Agent"
@@ -55,6 +56,11 @@ def _seo_once():
 _seo_once()  # vista previa al compartir el link (ver seo.py)
 
 st.set_page_config(page_title=APP_TITLE, layout="wide", page_icon=page_icon_img)
+
+# Idioma Español / English: botón fijo arriba del todo y traducción de toda la pantalla (ver i18n.py)
+i18n.install()
+i18n.init_lang()
+i18n.render_toggle()
 
 # ---------- Ícono para "Agregar a pantalla de inicio" (iOS/Android) ----------
 # Streamlit descarta los <link>/<meta> que se escriben con st.markdown, y sin apple-touch-icon el iPhone
@@ -344,7 +350,7 @@ SCREENER_STOCKS = (
 SCREENER_CRYPTO = "BTC/USD,ETH/USD,SOL/USD,LTC/USD,DOGE/USD,AVAX/USD,LINK/USD"
 
 
-@st.cache_data(ttl=300, show_spinner="Escaneando el universo del Screener...")
+@st.cache_data(ttl=300, show_spinner="Escaneando el universo del Screener… / Scanning the Screener universe…")
 def scan_universe(symbols: tuple) -> list:
     out = []
     for sym in symbols:
@@ -648,7 +654,7 @@ def asteroid(items: list, height: int = 470, positions: list = None):
                 "reason": str(i.get("reason") or "")[:240], "ts": str(i.get("ts") or "")[:16].replace("T", " "),
                 "pos": held.get(norm_symbol(i["symbol"]))}
                for i in items]
-    data = json.dumps(payload).replace("</", "<\\/")
+    data = json.dumps(payload, ensure_ascii=False).replace("</", "<\\/")
     html = ASTEROID_HTML.replace("__H__", str(height)).replace("__ITEMS__", data)
     components.html(html, height=height)
 

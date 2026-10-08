@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
+import i18n
 
 from config import Config
 
@@ -117,11 +118,11 @@ details.ln-card[open] summary::after {content: "\\2212";}
 def _pct(x: float, decimals: int = 1) -> str:
     """0.03 -> '3%', 0.015 -> '1,5%' (coma decimal)."""
     s = f"{x * 100:.{decimals}f}".rstrip("0").rstrip(".")
-    return s.replace(".", ",") + "%"
+    return i18n.dec(s) + "%"
 
 
 def _money(v: float) -> str:
-    return "$" + f"{v:,.0f}".replace(",", ".")
+    return "$" + i18n.thousands(f"{v:,.0f}")
 
 
 # ---------- Imágenes (SVG propio, se expanden al tocarlas) ----------
@@ -241,7 +242,7 @@ def _btc_block(df: pd.DataFrame, style_fig):
 
 
 def _fmt1(x: float, sign: bool = False) -> str:
-    return (f"{x:+.1f}" if sign else f"{x:.1f}").replace(".", ",")
+    return i18n.dec(f"{x:+.1f}" if sign else f"{x:.1f}")
 
 
 
@@ -295,7 +296,7 @@ def _vol_chart(vals: dict, style_fig):
     names = list(vals.keys())
     colors = [R if "/" in n else B for n in names]
     fig = go.Figure(go.Bar(x=names, y=[vals[n] for n in names], marker_color=colors,
-                           text=[f"{vals[n]:.1f}%".replace(".", ",") for n in names], textposition="outside",
+                           text=[i18n.dec(f"{vals[n]:.1f}%") for n in names], textposition="outside",
                            hovertemplate="%{x}: %{y:.2f}% por día<extra></extra>"))
     fig.update_yaxes(gridcolor="rgba(120,170,255,.08)", ticksuffix="%", range=[0, max(vals.values()) * 1.25])
     fig.update_layout(dragmode=False)
@@ -378,7 +379,7 @@ def render_landing(img_b64, equity_df, sigs, positions, asteroid_fn, style_fig, 
     delta_html = ""
     if equity_now is not None and first_eq:
         d = (equity_now - first_eq) / first_eq * 100
-        dtxt = f"{d:+.2f}".replace(".", ",")
+        dtxt = i18n.dec(f"{d:+.2f}")
         delta_html = f'<div class="s"><span class="{"g" if d >= 0 else "r"}">{dtxt}%</span> desde el primer registro</div>'
     good = sum(1 for s in sigs if s["tone"] == "g")
     mid = sum(1 for s in sigs if s["tone"] == "y")
@@ -421,7 +422,7 @@ def render_landing(img_b64, equity_df, sigs, positions, asteroid_fn, style_fig, 
     pos_usd = cuenta * Config.MAX_POSITION_PCT
     cards = "".join([
         _card("01", "Mira el mercado", "Tocá para ver cómo", _svg_mira(),
-              f'<p>Cada minuto lee las velas de <b>{n_acc} acciones</b> y <b>{n_cry} criptomonedas</b>. '
+              f'<p>Cada minuto lee las velas de <b>{n_acc} acciones</b> {i18n.tr('y')} <b>{n_cry} criptomonedas</b>. '
               'Con ellas calcula dos promedios móviles (uno rápido y uno lento) y el RSI, que mide si algo está caro o barato en el corto plazo.</p>'
               '<div class="ex"><i>EJEMPLO ILUSTRATIVO</i>Una vela de 15 minutos de AAPL resume cuatro precios: apertura, máximo, mínimo y cierre. '
               'El agente mira las últimas 200 para entender el momento de la acción.</div>'),
@@ -522,14 +523,14 @@ def render_landing(img_b64, equity_df, sigs, positions, asteroid_fn, style_fig, 
 
     # ---- Cripto conservadora ----
     tf_h = Config.CRYPTO_TIMEFRAME_MINUTES / 60
-    tf_txt = f"{tf_h:g}".replace(".", ",") + " h" if Config.CRYPTO_TIMEFRAME_MINUTES >= 60 else f"{Config.CRYPTO_TIMEFRAME_MINUTES} min"
+    tf_txt = i18n.dec(f"{tf_h:g}") + " h" if Config.CRYPTO_TIMEFRAME_MINUTES >= 60 else f"{Config.CRYPTO_TIMEFRAME_MINUTES} min"
     worst = Config.CRYPTO_MAX_POSITION_PCT * Config.CRYPTO_TRAILING_STOP_PCT
     rules = [
         (tf_txt, "por vela: decide con calma"),
         (_pct(Config.CRYPTO_MAX_POSITION_PCT), "del capital por operación"),
         (_pct(Config.CRYPTO_MAX_EXPOSURE_PCT), "techo total en cripto"),
         (str(Config.CRYPTO_MAX_TRADES_PER_DAY or "sin tope"), "compras por día como máximo"),
-        (f"{Config.CRYPTO_COOLDOWN_MINUTES / 60:g} h".replace(".", ","), "de pausa tras cada cierre"),
+        (i18n.dec(f"{Config.CRYPTO_COOLDOWN_MINUTES / 60:g} h"), "de pausa tras cada cierre"),
         (_pct(Config.CRYPTO_DAILY_LOSS_PCT), "de pérdida diaria y se frena"),
     ]
     rules_html = "".join(f'<div class="ln-rule"><b>{v}</b><span>{t}</span></div>' for v, t in rules)
@@ -570,7 +571,7 @@ def render_landing(img_b64, equity_df, sigs, positions, asteroid_fn, style_fig, 
             st.markdown(
                 '<div class="ln-stats" style="grid-template-columns:repeat(3,1fr);margin-top:6px">'
                 f'<div class="ln-stat"><div class="k">Variación</div><div class="v" style="font-size:20px;color:{col}">{_fmt1(btc["chg"], True)}%</div>'
-                f'<div class="s">en {btc["days"]} días</div></div>'
+                f'<div class="s">en los últimos {btc["days"]} días</div></div>'
                 f'<div class="ln-stat"><div class="k">Rango</div><div class="v" style="font-size:20px">{_fmt1(btc["rng"])}%</div>'
                 '<div class="s">de máximo a mínimo</div></div>'
                 f'<div class="ln-stat"><div class="k">Peor día</div><div class="v" style="font-size:20px;color:{R if btc["worst"] < 0 else G}">{_fmt1(btc["worst"], True)}%</div>'
