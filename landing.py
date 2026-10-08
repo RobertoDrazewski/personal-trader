@@ -24,9 +24,9 @@ LANDING_CSS = """
 .ln-halo {position: absolute; inset: -6%; border-radius: 50%;
           background: radial-gradient(circle, rgba(79,209,232,.34) 0%, rgba(192,138,78,.18) 40%, rgba(79,209,232,.06) 62%, transparent 74%);
           filter: blur(16px); animation: lnpulse 5s ease-in-out infinite;}
-.ln-orb img.ic {position: relative; width: 64%; height: auto;
-                filter: drop-shadow(0 0 6px rgba(120,225,255,.65)) drop-shadow(0 0 22px rgba(79,209,232,.55)) drop-shadow(0 0 54px rgba(192,138,78,.40));
-                animation: lnfloat 7s ease-in-out infinite, lnglow 4.5s ease-in-out infinite;}
+.ln-orb img.ic {position: relative; display: block; width: 64%; height: auto; aspect-ratio: 450 / 414; object-fit: contain;
+                filter: drop-shadow(0 0 12px rgba(79,209,232,.50));
+                will-change: transform; animation: lnfloat 7s ease-in-out infinite;}
 .ln-ring {position: absolute; border-radius: 50%; border: 1px solid rgba(120,170,255,.22);}
 .ln-ring.r1 {inset: 0; animation: lnspin 38s linear infinite;
              box-shadow: 0 0 26px rgba(79,209,232,.20), inset 0 0 26px rgba(79,209,232,.10); border-color: rgba(120,200,255,.34);}
