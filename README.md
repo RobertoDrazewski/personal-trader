@@ -240,3 +240,8 @@ El idioma se recuerda en el enlace (`?lang=en`), así que podés compartir la ve
 - `i18n.py`: el mecanismo (traduce al dibujar; en español no cambia nada).
 - `i18n_en.py`: la tabla de frases español → inglés. **Si agregás un texto nuevo en español en la interfaz, agregá acá su versión en inglés**; si falta, simplemente se ve en español.
 - Límite conocido: la vista previa al compartir el link (título y descripción de WhatsApp/LinkedIn) queda en español porque la leen los buscadores antes de que corra la página.
+
+### Resultados del laboratorio en la landing
+
+La sección "Laboratorio" de la landing muestra cifras FIJAS que están en `lab_data.py` (copiadas de una corrida real de `python lab.py 8 sip`).
+Si volvés a correr el laboratorio y querés actualizarlas, editá la tabla `LAB_ROWS` y la fecha en `LAB_META`. Los textos están en español e inglés (`i18n_en.py`).

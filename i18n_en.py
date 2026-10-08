@@ -513,6 +513,42 @@ EN = {
         "stock prices (IEX feed), crypto prices and news: Alpaca Markets (alpaca.markets). Data from reliable sources; it may be delayed or contain errors.",
     "Puma Code. Todos los derechos reservados.": "Puma Code. All rights reserved.",
 
+    # ---------------- Laboratorio ----------------
+    "Laboratorio": "Laboratory",
+    "El agente se mide contra el mercado, sin maquillaje": "The agent measures itself against the market, no sugar-coating",
+    "Antes de confiar en una idea se prueba con años de datos reales y se compara con lo más simple que existe: comprar el índice S&P 500 (SPY) y no tocarlo. Estos son los resultados de la última corrida, con costos incluidos.":
+        "Before trusting an idea it is tested with years of real data and compared with the simplest thing there is: buying the S&P 500 index (SPY) and not touching it. These are the results of the latest run, with costs included.",
+    "Estrategia": "Strategy",
+    "Retorno por año": "Return per year",
+    "Fuera de muestra": "Out of sample",
+    "Sharpe fuera de muestra": "Sharpe out of sample",
+    "Mayor caída": "Max drawdown",
+    "SPY comprar y mantener (referencia)": "SPY buy and hold (benchmark)",
+    "Cruce de medias 10/30 (el que usa el agente)": "Moving-average cross 10/30 (the one the agent uses)",
+    "Turtle 55/20 con filtro de mercado": "Turtle 55/20 with market filter",
+    "Momentum 12-1, 10 acciones (con sesgo)": "Momentum 12-1, 10 stocks (biased)",
+    "Screener del agente, Top 3": "Agent screener, Top 3",
+    "Screener del agente, Top 5": "Agent screener, Top 5",
+    "Momentum de ETFs, 5 (sin sesgo)": "ETF momentum, 5 (unbiased)",
+    "años de velas diarias, feed": "years of daily candles, feed",
+    "). «Fuera de muestra» es el tramo desde": "). “Out of sample” is the stretch since",
+    ", que no se usó para elegir las reglas. Sharpe mide el retorno por unidad de riesgo; «mayor caída» es la peor baja desde un máximo, fuera de muestra.":
+        ", which was not used to choose the rules. Sharpe measures return per unit of risk; “max drawdown” is the worst drop from a peak, out of sample.",
+    "Nada le ganó a SPY": "Nothing beat SPY",
+    "Ninguna estrategia superó a comprar SPY de forma clara en los dos períodos. Es un resultado incómodo y es justamente el que hay que conocer antes de arriesgar dinero.":
+        "No strategy clearly beat buying SPY in both periods. It is an uncomfortable result and exactly the one you need to know before risking money.",
+    "El cruce de medias rinde poco": "The moving-average cross earns little",
+    "La estrategia que hoy usa el agente casi no está invertida: cae poco, pero también sube poco. Por eso es una demostración y no una promesa.":
+        "The strategy the agent uses today is barely invested: it falls little, but it also rises little. That is why it is a demo and not a promise.",
+    "El sesgo engaña": "Bias misleads",
+    "El momentum parece ganar con acciones sueltas, pero no se repite en ETFs. Probar solo con empresas que hoy existen y brillan infla el resultado.":
+        "Momentum seems to win with individual stocks, but it does not repeat in ETFs. Testing only with companies that exist and shine today inflates the result.",
+    "Menos caída, no más ganancia": "Smaller drops, not bigger gains",
+    "Lo único que se sostuvo fue una versión de Turtle con filtro de mercado: retorno parecido con casi la mitad de la caída. Baja el riesgo, no suma retorno.":
+        "The only thing that held up was a Turtle version with a market filter: similar return with almost half the drawdown. It lowers risk; it doesn't add return.",
+    "Con tantas variantes probadas, alguna gana por casualidad; por eso un resultado solo cuenta si lo repiten sus variantes. El próximo paso para cualquier idea es probarla de 3 a 6 meses en paper trading antes de pensar en dinero real. Los resultados pasados no garantizan resultados futuros y esto no es asesoramiento financiero.":
+        "With so many variants tested, one will win by chance; that is why a result only counts if its variants repeat it. The next step for any idea is to test it for 3 to 6 months in paper trading before thinking about real money. Past results do not guarantee future results and this is not financial advice.",
+
     # ---------------- Gráficos landing ----------------
     "VELAS · SMA 10 / 30 · RSI": "CANDLES · SMA 10 / 30 · RSI",
     "cierre $%{close:,.0f}": "close $%{close:,.0f}",

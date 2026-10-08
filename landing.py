@@ -11,6 +11,7 @@ import streamlit as st
 import i18n
 
 from config import Config
+from lab_data import LAB_META, LAB_ROWS
 
 G, Y, R, B, DIM = "#3EE89A", "#F5C84B", "#FF5F6D", "#8FB4FF", "#7F93B4"
 
@@ -88,6 +89,7 @@ details.ln-card[open] summary::after {content: "\\2212";}
 .ln-table td {padding: 7px 10px; color: #CFE0F5; border-bottom: 1px solid rgba(120,170,255,.08);}
 .ln-table td.g {color: #3EE89A;} .ln-table td.r {color: #FF5F6D;}
 .ln-sub {font: 600 11px 'Chakra Petch', sans-serif; letter-spacing: .16em; color: #9FB4D6; text-transform: uppercase; margin: 6px 0 2px;}
+.ln-table tr.ln-ref td {color: #EAF1FB; font-weight: 700; background: rgba(79,209,232,.07);}
 .ln-note {margin-top: 12px; font-size: 12px; color: #7F93B4; line-height: 1.5; max-width: 760px;}
 .ln-foot {text-align: center; margin: 34px 0 6px; font: 500 10px 'Chakra Petch', sans-serif; letter-spacing: .22em; color: #5E7194;}
 .ln-legal {max-width: 640px; margin: 10px auto 0; text-align: center; font: 400 10px/1.55 'Chakra Petch', sans-serif; color: #5E7194; opacity: .85;}
@@ -325,6 +327,17 @@ def _bt_table(bt_df: pd.DataFrame):
     return html, avg, len(d)
 
 
+def _lab_table():
+    """Tabla fija con los resultados del laboratorio (ver lab_data.py)."""
+    rows = ""
+    for name, r_all, r_oos, sh, dd, ref in LAB_ROWS:
+        cls = ' class="ln-ref"' if ref else ""
+        rows += (f'<tr{cls}><td>{name}</td><td>{_fmt1(r_all)}%</td><td>{_fmt1(r_oos)}%</td>'
+                 f'<td>{i18n.dec(f"{sh:.2f}")}</td><td>{_fmt1(dd)}%</td></tr>')
+    return ('<div style="overflow-x:auto"><table class="ln-table" style="min-width:560px"><tr><th>Estrategia</th><th>Retorno por año</th><th>Fuera de muestra</th>'
+            '<th>Sharpe fuera de muestra</th><th>Mayor caída</th></tr>' + rows + '</table></div>')
+
+
 def _top_table(auto_top):
     """Top N del screener automático (lo escribe el agente en la base). None si no está activado o no hay datos."""
     if not auto_top or not auto_top.get("rows"):
@@ -520,6 +533,30 @@ def render_landing(img_b64, equity_df, sigs, positions, asteroid_fn, style_fig, 
             f'<div class="ln-note">De {n_sc} acciones escaneadas, {n_el} pasan los filtros de tendencia sana. El puntaje combina fuerza de los últimos meses, '
             f'del último mes y de hoy, comparada con las demás. {modo}{when} No es una recomendación de compra: es una demostración de cómo el agente prioriza.</div>',
             unsafe_allow_html=True)
+
+    # ---- Laboratorio ----
+    st.markdown(
+        '<div class="ln-h">Laboratorio</div><div class="ln-h2">El agente se mide contra el mercado, sin maquillaje</div>'
+        '<p class="ln-p">Antes de confiar en una idea se prueba con años de datos reales y se compara con lo más simple que existe: '
+        'comprar el índice S&P 500 (SPY) y no tocarlo. Estos son los resultados de la última corrida, con costos incluidos.</p>'
+        f'{_lab_table()}'
+        f'<div class="ln-note">{LAB_META["period"]} ({i18n.dec(str(LAB_META["years"]))} años de velas diarias, feed {LAB_META["feed"]}). '
+        f'«Fuera de muestra» es el tramo desde {LAB_META["oos_from"]}, que no se usó para elegir las reglas. '
+        'Sharpe mide el retorno por unidad de riesgo; «mayor caída» es la peor baja desde un máximo, fuera de muestra.</div>'
+        '<div class="ln-cols f4" style="margin-top:14px">'
+        '<div class="ln-col"><b>Nada le ganó a SPY</b><p>Ninguna estrategia superó a comprar SPY de forma clara en los dos períodos. '
+        'Es un resultado incómodo y es justamente el que hay que conocer antes de arriesgar dinero.</p></div>'
+        '<div class="ln-col"><b>El cruce de medias rinde poco</b><p>La estrategia que hoy usa el agente casi no está invertida: '
+        'cae poco, pero también sube poco. Por eso es una demostración y no una promesa.</p></div>'
+        '<div class="ln-col"><b>El sesgo engaña</b><p>El momentum parece ganar con acciones sueltas, pero no se repite en ETFs. '
+        'Probar solo con empresas que hoy existen y brillan infla el resultado.</p></div>'
+        '<div class="ln-col"><b>Menos caída, no más ganancia</b><p>Lo único que se sostuvo fue una versión de Turtle con filtro de mercado: '
+        'retorno parecido con casi la mitad de la caída. Baja el riesgo, no suma retorno.</p></div>'
+        '</div>'
+        '<div class="ln-note">Con tantas variantes probadas, alguna gana por casualidad; por eso un resultado solo cuenta si lo repiten sus variantes. '
+        'El próximo paso para cualquier idea es probarla de 3 a 6 meses en paper trading antes de pensar en dinero real. '
+        'Los resultados pasados no garantizan resultados futuros y esto no es asesoramiento financiero.</div>',
+        unsafe_allow_html=True)
 
     # ---- Cripto conservadora ----
     tf_h = Config.CRYPTO_TIMEFRAME_MINUTES / 60
