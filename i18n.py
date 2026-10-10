@@ -39,6 +39,7 @@ def _compile():
 
 
 _RX = _compile()
+_DATA_URI = re.compile(r"data:[\w/+.-]+;base64,[A-Za-z0-9+/=]+")
 
 
 # ---------- Idioma ----------
@@ -72,7 +73,16 @@ def _tr_en(s: str) -> str:
     st_ = s.strip()
     if st_ in EN_EXACT:
         return s.replace(st_, EN_EXACT[st_])
-    return _RX.sub(lambda m: EN[m.group(0)], s)
+    if "base64," not in s:
+        return _RX.sub(lambda m: EN[m.group(0)], s)
+    # Las imágenes incrustadas (data:...;base64,XXXX) no se tocan: una frase suelta dentro de los datos las rompe.
+    out, last = [], 0
+    for m in _DATA_URI.finditer(s):
+        out.append(_RX.sub(lambda x: EN[x.group(0)], s[last:m.start()]))
+        out.append(m.group(0))
+        last = m.end()
+    out.append(_RX.sub(lambda x: EN[x.group(0)], s[last:]))
+    return "".join(out)
 
 
 def tr(s):
